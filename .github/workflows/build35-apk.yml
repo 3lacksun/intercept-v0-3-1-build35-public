@@ -1,0 +1,153 @@
+name: Build 35 Android Acceptance
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/build35-apk.yml'
+      - 'payload/**'
+
+env:
+  EXPECTED_SOURCE_SHA256: 699b17ac3721dfe91da048bab0568b06408ff63178f9f0d8237d971e03b38756
+
+jobs:
+  verify-build35:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate and reconstruct exact source payload
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          chunks=(payload/b64chunk_*)
+          if (( ${#chunks[@]} == 0 )); then
+            echo "ERROR: Build 35 source payload is absent. Expected payload/b64chunk_* files." >&2
+            exit 2
+          fi
+          mkdir -p src evidence
+          cat "${chunks[@]}" | base64 -d > /tmp/src.zip
+          ACTUAL_SOURCE_SHA256="$(sha256sum /tmp/src.zip | awk '{print $1}')"
+          printf '%s  %s\n' "$ACTUAL_SOURCE_SHA256" /tmp/src.zip | tee evidence/source-zip.sha256
+          if [[ "$ACTUAL_SOURCE_SHA256" != "$EXPECTED_SOURCE_SHA256" ]]; then
+            echo "ERROR: Build 35 source payload SHA-256 mismatch." >&2
+            echo "Expected: $EXPECTED_SOURCE_SHA256" >&2
+            echo "Actual:   $ACTUAL_SOURCE_SHA256" >&2
+            exit 3
+          fi
+          unzip -t /tmp/src.zip | tee evidence/source-zip-test.txt
+          unzip -q /tmp/src.zip -d src
+          test -f src/gradlew
+          test -d src/app
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
+          cache-dependency-path: |
+            src/**/*.gradle*
+            src/**/gradle-wrapper.properties
+
+      - uses: android-actions/setup-android@v3
+        with:
+          accept-android-sdk-licenses: true
+
+      - name: Install Android SDK 36 tooling
+        shell: bash
+        run: |
+          set -euo pipefail
+          yes | sdkmanager --licenses >/dev/null 2>&1 || true
+          sdkmanager \
+            "platform-tools" \
+            "platforms;android-36" \
+            "build-tools;35.0.0"
+
+      - name: Prepare Gradle
+        working-directory: src
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x gradlew
+          printf 'sdk.dir=%s\n' "$ANDROID_HOME" > local.properties
+          ./gradlew --no-daemon --version | tee ../evidence/gradle-version.txt
+
+      - name: Unit tests
+        working-directory: src
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew --no-daemon testDebugUnitTest | tee ../evidence/testDebugUnitTest.log
+
+      - name: Compile debug Kotlin
+        working-directory: src
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew --no-daemon :app:compileDebugKotlin | tee ../evidence/compileDebugKotlin.log
+
+      - name: Android lint
+        working-directory: src
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew --no-daemon \
+            -Dorg.gradle.jvmargs="-Xmx4g -XX:MaxMetaspaceSize=1536m -Dfile.encoding=UTF-8" \
+            lintDebug | tee ../evidence/lintDebug.log
+
+      - name: Assemble debug APK
+        working-directory: src
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew --no-daemon assembleDebug | tee ../evidence/assembleDebug.log
+          test -f app/build/outputs/apk/debug/app-debug.apk
+
+      - name: Verify Build 35 APK identity and integrity
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK=src/app/build/outputs/apk/debug/app-debug.apk
+          AAPT="$ANDROID_HOME/build-tools/35.0.0/aapt"
+          ZIPALIGN="$ANDROID_HOME/build-tools/35.0.0/zipalign"
+          APKSIGNER="$ANDROID_HOME/build-tools/35.0.0/apksigner"
+
+          "$AAPT" dump badging "$APK" | tee evidence/aapt-badging.txt
+          grep -F "package: name='com.nexarenew.drstonecommand' versionCode='35' versionName='0.3.1'" evidence/aapt-badging.txt
+          grep -F "sdkVersion:'26'" evidence/aapt-badging.txt
+          grep -F "targetSdkVersion:'36'" evidence/aapt-badging.txt
+          grep -F "application-label:'INTERCEPT'" evidence/aapt-badging.txt
+
+          "$ZIPALIGN" -c -v 4 "$APK" | tee evidence/zipalign.txt
+          "$APKSIGNER" verify --verbose --print-certs "$APK" | tee evidence/apksigner.txt
+          sha256sum "$APK" | tee evidence/app-debug.apk.sha256
+
+      - name: Collect Android reports
+        if: always()
+        shell: bash
+        run: |
+          set +e
+          mkdir -p evidence/reports
+          cp -R src/app/build/reports/tests evidence/reports/unit-tests 2>/dev/null || true
+          cp -R src/app/build/reports/lint-results-debug.html evidence/reports/ 2>/dev/null || true
+
+      - name: Upload verification evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: INTERCEPT_V0_3_1_BUILD35_ANDROID_ACCEPTANCE_EVIDENCE
+          path: evidence/
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Upload verified debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: INTERCEPT_V0_3_1_BUILD35_DEBUG_APK
+          path: src/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 30
