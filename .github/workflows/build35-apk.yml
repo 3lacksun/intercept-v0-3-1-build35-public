@@ -7,9 +7,11 @@ on:
     paths:
       - '.github/workflows/build35-apk.yml'
       - 'payload/**'
+      - 'SOURCE_TRANSPORT.md'
 
 env:
   EXPECTED_SOURCE_SHA256: 699b17ac3721dfe91da048bab0568b06408ff63178f9f0d8237d971e03b38756
+  SOURCE_ZIP_URL: https://litter.catbox.moe/o954bz.zip
 
 jobs:
   verify-build35:
@@ -24,13 +26,15 @@ jobs:
         run: |
           set -euo pipefail
           shopt -s nullglob
-          chunks=(payload/b64chunk_*)
-          if (( ${#chunks[@]} == 0 )); then
-            echo "ERROR: Build 35 source payload is absent. Expected payload/b64chunk_* files." >&2
-            exit 2
-          fi
           mkdir -p src evidence
-          cat "${chunks[@]}" | base64 -d > /tmp/src.zip
+          chunks=(payload/b64chunk_*)
+          if (( ${#chunks[@]} > 0 )); then
+            echo "Reconstructing source zip from payload/b64chunk_*"
+            cat "${chunks[@]}" | base64 -d > /tmp/src.zip
+          else
+            echo "Downloading SHA-pinned source zip from $SOURCE_ZIP_URL"
+            curl -fL --retry 3 --retry-delay 2 -o /tmp/src.zip "$SOURCE_ZIP_URL"
+          fi
           ACTUAL_SOURCE_SHA256="$(sha256sum /tmp/src.zip | awk '{print $1}')"
           printf '%s  %s\n' "$ACTUAL_SOURCE_SHA256" /tmp/src.zip | tee evidence/source-zip.sha256
           if [[ "$ACTUAL_SOURCE_SHA256" != "$EXPECTED_SOURCE_SHA256" ]]; then
@@ -74,6 +78,14 @@ jobs:
           set -euo pipefail
           chmod +x gradlew
           printf 'sdk.dir=%s\n' "$ANDROID_HOME" > local.properties
+          cat >> gradle.properties <<'EOF'
+org.gradle.daemon=false
+org.gradle.parallel=false
+org.gradle.workers.max=2
+org.gradle.jvmargs=-Xmx3g -XX:MaxMetaspaceSize=768m -XX:+UseSerialGC -Dfile.encoding=UTF-8
+kotlin.compiler.execution.strategy=in-process
+kotlin.incremental=false
+EOF
           ./gradlew --no-daemon --version | tee ../evidence/gradle-version.txt
 
       - name: Unit tests
@@ -95,9 +107,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          ./gradlew --no-daemon \
-            -Dorg.gradle.jvmargs="-Xmx4g -XX:MaxMetaspaceSize=1536m -Dfile.encoding=UTF-8" \
-            lintDebug | tee ../evidence/lintDebug.log
+          ./gradlew --no-daemon lintDebug | tee ../evidence/lintDebug.log
 
       - name: Assemble debug APK
         working-directory: src
