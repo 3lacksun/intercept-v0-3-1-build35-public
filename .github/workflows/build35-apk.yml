@@ -88,6 +88,8 @@ jobs:
           ./gradlew --no-daemon :app:compileDebugKotlin | tee ../evidence/compileDebugKotlin.log
 
       - name: Android lint
+        id: lint
+        continue-on-error: true
         working-directory: src
         run: |
           set -euo pipefail
@@ -115,6 +117,7 @@ jobs:
           "$ZIPALIGN" -c -v 4 "$APK" | tee evidence/zipalign.txt
           "$APKSIGNER" verify --verbose --print-certs "$APK" | tee evidence/apksigner.txt
           sha256sum "$APK" | tee evidence/app-debug.apk.sha256
+          cp "$APK" evidence/app-debug.apk
 
       - name: Collect Android reports
         if: always()
@@ -123,6 +126,7 @@ jobs:
           mkdir -p evidence/reports
           cp -R src/app/build/reports/tests evidence/reports/unit-tests 2>/dev/null || true
           cp src/app/build/reports/lint-results-debug.html evidence/reports/ 2>/dev/null || true
+          echo lint_step_outcome=${{ steps.lint.outcome }} | tee evidence/lint-gate.txt
 
       - name: Upload verification evidence
         if: always()
@@ -140,3 +144,12 @@ jobs:
           path: src/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 30
+
+      - name: Record lint gate without blocking APK production
+        if: always()
+        run: |
+          echo "Lint step outcome: ${{ steps.lint.outcome }}"
+          if [ "${{ steps.lint.outcome }}" != "success" ]; then
+            echo "LINT GATE FAIL recorded. APK was still assembled from unmodified source."
+            exit 1
+          fi
