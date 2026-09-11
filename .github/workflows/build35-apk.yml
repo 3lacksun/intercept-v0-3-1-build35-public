@@ -4,10 +4,6 @@ on:
   workflow_dispatch:
   push:
     branches: [main]
-    paths:
-      - '.github/workflows/build35-apk.yml'
-      - 'payload/**'
-      - 'SOURCE_TRANSPORT.md'
 
 env:
   EXPECTED_SOURCE_SHA256: 699b17ac3721dfe91da048bab0568b06408ff63178f9f0d8237d971e03b38756
@@ -17,30 +13,28 @@ jobs:
   verify-build35:
     runs-on: ubuntu-latest
     timeout-minutes: 90
-
     steps:
       - uses: actions/checkout@v4
 
       - name: Validate and reconstruct exact source payload
-        shell: bash
         run: |
           set -euo pipefail
           shopt -s nullglob
           mkdir -p src evidence
           chunks=(payload/b64chunk_*)
           if (( ${#chunks[@]} > 0 )); then
-            echo "Reconstructing source zip from payload/b64chunk_*"
+            echo Reconstructing source zip from payload chunks
             cat "${chunks[@]}" | base64 -d > /tmp/src.zip
           else
-            echo "Downloading SHA-pinned source zip from $SOURCE_ZIP_URL"
+            echo Downloading SHA-pinned source zip
             curl -fL --retry 3 --retry-delay 2 -o /tmp/src.zip "$SOURCE_ZIP_URL"
           fi
           ACTUAL_SOURCE_SHA256="$(sha256sum /tmp/src.zip | awk '{print $1}')"
-          printf '%s  %s\n' "$ACTUAL_SOURCE_SHA256" /tmp/src.zip | tee evidence/source-zip.sha256
-          if [[ "$ACTUAL_SOURCE_SHA256" != "$EXPECTED_SOURCE_SHA256" ]]; then
-            echo "ERROR: Build 35 source payload SHA-256 mismatch." >&2
-            echo "Expected: $EXPECTED_SOURCE_SHA256" >&2
-            echo "Actual:   $ACTUAL_SOURCE_SHA256" >&2
+          echo "$ACTUAL_SOURCE_SHA256  /tmp/src.zip" | tee evidence/source-zip.sha256
+          if [ "$ACTUAL_SOURCE_SHA256" != "$EXPECTED_SOURCE_SHA256" ]; then
+            echo ERROR source SHA-256 mismatch
+            echo Expected $EXPECTED_SOURCE_SHA256
+            echo Actual $ACTUAL_SOURCE_SHA256
             exit 3
           fi
           unzip -t /tmp/src.zip | tee evidence/source-zip-test.txt
@@ -51,7 +45,7 @@ jobs:
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: '17'
+          java-version: "17"
           cache: gradle
           cache-dependency-path: |
             src/**/*.gradle*
@@ -62,88 +56,73 @@ jobs:
           accept-android-sdk-licenses: true
 
       - name: Install Android SDK 36 tooling
-        shell: bash
         run: |
           set -euo pipefail
           yes | sdkmanager --licenses >/dev/null 2>&1 || true
-          sdkmanager \
-            "platform-tools" \
-            "platforms;android-36" \
-            "build-tools;35.0.0"
+          sdkmanager "platform-tools" "platforms;android-36" "build-tools;35.0.0"
 
       - name: Prepare Gradle
         working-directory: src
-        shell: bash
         run: |
           set -euo pipefail
           chmod +x gradlew
-          printf 'sdk.dir=%s\n' "$ANDROID_HOME" > local.properties
-          cat >> gradle.properties <<'EOF'
-org.gradle.daemon=false
-org.gradle.parallel=false
-org.gradle.workers.max=2
-org.gradle.jvmargs=-Xmx3g -XX:MaxMetaspaceSize=768m -XX:+UseSerialGC -Dfile.encoding=UTF-8
-kotlin.compiler.execution.strategy=in-process
-kotlin.incremental=false
-EOF
+          echo "sdk.dir=$ANDROID_HOME" > local.properties
+          echo org.gradle.daemon=false >> gradle.properties
+          echo org.gradle.parallel=false >> gradle.properties
+          echo org.gradle.workers.max=2 >> gradle.properties
+          echo org.gradle.jvmargs=-Xmx3g -XX:MaxMetaspaceSize=768m -XX:+UseSerialGC -Dfile.encoding=UTF-8 >> gradle.properties
+          echo kotlin.compiler.execution.strategy=in-process >> gradle.properties
+          echo kotlin.incremental=false >> gradle.properties
           ./gradlew --no-daemon --version | tee ../evidence/gradle-version.txt
 
       - name: Unit tests
         working-directory: src
-        shell: bash
         run: |
           set -euo pipefail
           ./gradlew --no-daemon testDebugUnitTest | tee ../evidence/testDebugUnitTest.log
 
       - name: Compile debug Kotlin
         working-directory: src
-        shell: bash
         run: |
           set -euo pipefail
           ./gradlew --no-daemon :app:compileDebugKotlin | tee ../evidence/compileDebugKotlin.log
 
       - name: Android lint
         working-directory: src
-        shell: bash
         run: |
           set -euo pipefail
           ./gradlew --no-daemon lintDebug | tee ../evidence/lintDebug.log
 
       - name: Assemble debug APK
         working-directory: src
-        shell: bash
         run: |
           set -euo pipefail
           ./gradlew --no-daemon assembleDebug | tee ../evidence/assembleDebug.log
           test -f app/build/outputs/apk/debug/app-debug.apk
 
       - name: Verify Build 35 APK identity and integrity
-        shell: bash
         run: |
           set -euo pipefail
           APK=src/app/build/outputs/apk/debug/app-debug.apk
-          AAPT="$ANDROID_HOME/build-tools/35.0.0/aapt"
-          ZIPALIGN="$ANDROID_HOME/build-tools/35.0.0/zipalign"
-          APKSIGNER="$ANDROID_HOME/build-tools/35.0.0/apksigner"
-
+          AAPT=$ANDROID_HOME/build-tools/35.0.0/aapt
+          ZIPALIGN=$ANDROID_HOME/build-tools/35.0.0/zipalign
+          APKSIGNER=$ANDROID_HOME/build-tools/35.0.0/apksigner
           "$AAPT" dump badging "$APK" | tee evidence/aapt-badging.txt
           grep -F "package: name='com.nexarenew.drstonecommand' versionCode='35' versionName='0.3.1'" evidence/aapt-badging.txt
           grep -F "sdkVersion:'26'" evidence/aapt-badging.txt
           grep -F "targetSdkVersion:'36'" evidence/aapt-badging.txt
           grep -F "application-label:'INTERCEPT'" evidence/aapt-badging.txt
-
           "$ZIPALIGN" -c -v 4 "$APK" | tee evidence/zipalign.txt
           "$APKSIGNER" verify --verbose --print-certs "$APK" | tee evidence/apksigner.txt
           sha256sum "$APK" | tee evidence/app-debug.apk.sha256
 
       - name: Collect Android reports
         if: always()
-        shell: bash
         run: |
           set +e
           mkdir -p evidence/reports
           cp -R src/app/build/reports/tests evidence/reports/unit-tests 2>/dev/null || true
-          cp -R src/app/build/reports/lint-results-debug.html evidence/reports/ 2>/dev/null || true
+          cp src/app/build/reports/lint-results-debug.html evidence/reports/ 2>/dev/null || true
 
       - name: Upload verification evidence
         if: always()
