@@ -1,0 +1,85 @@
+name: Export Build 35 Lint Dependency Cache
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+env:
+  EXPECTED_SOURCE_SHA256: 699b17ac3721dfe91da048bab0568b06408ff63178f9f0d8237d971e03b38756
+  SOURCE_ZIP_URL: https://litter.catbox.moe/o954bz.zip
+
+jobs:
+  export-lint-cache:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Reconstruct already-public Build 35 source
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          rm -rf src
+          mkdir -p src
+          chunks=(payload/b64chunk_*)
+          if (( ${#chunks[@]} > 0 )); then
+            cat "${chunks[@]}" | base64 -d > /tmp/src.zip
+          else
+            curl -fL --retry 3 --retry-delay 2 -o /tmp/src.zip "$SOURCE_ZIP_URL"
+          fi
+          ACTUAL="$(sha256sum /tmp/src.zip | awk '{print $1}')"
+          test "$ACTUAL" = "$EXPECTED_SOURCE_SHA256"
+          unzip -q /tmp/src.zip -d src
+          test -f src/gradlew
+          chmod +x src/gradlew
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - uses: android-actions/setup-android@v3
+        with:
+          accept-android-sdk-licenses: true
+
+      - name: Install Android SDK tooling
+        shell: bash
+        run: |
+          set -euo pipefail
+          yes | sdkmanager --licenses >/dev/null 2>&1 || true
+          sdkmanager "platform-tools" "platforms;android-36" "build-tools;35.0.0" "build-tools;36.0.0"
+
+      - name: Resolve Android-test and lint dependency graphs
+        working-directory: src
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf 'sdk.dir=%s\n' "$ANDROID_HOME" > local.properties
+          ./gradlew --no-daemon :app:dependencies --configuration debugAndroidTestCompileClasspath
+          set +e
+          ./gradlew --no-daemon lintDebug
+          echo "lint_rc=$? (allowed here; this job exports dependencies, not lint disposition)"
+          set -e
+
+      - name: Package complete Gradle modules cache
+        shell: bash
+        run: |
+          set -euo pipefail
+          du -sh "$HOME/.gradle/caches/modules-2"
+          tar --zstd -cf /tmp/modules-2.tar.zst -C "$HOME/.gradle/caches" modules-2
+          sha256sum /tmp/modules-2.tar.zst > /tmp/modules-2.sha256
+          ls -lh /tmp/modules-2.tar.zst
+          cat /tmp/modules-2.sha256
+
+      - name: Upload modules cache
+        uses: actions/upload-artifact@v4
+        with:
+          name: INTERCEPT_BUILD35_LINT_MODULES2_JDK21
+          path: |
+            /tmp/modules-2.tar.zst
+            /tmp/modules-2.sha256
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7
