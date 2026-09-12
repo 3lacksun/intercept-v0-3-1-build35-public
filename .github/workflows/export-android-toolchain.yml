@@ -1,0 +1,107 @@
+name: Export Build 35 Android Toolchain
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/export-android-toolchain.yml'
+
+env:
+  EXPECTED_SOURCE_SHA256: 699b17ac3721dfe91da048bab0568b06408ff63178f9f0d8237d971e03b38756
+  SOURCE_ZIP_URL: https://litter.catbox.moe/o954bz.zip
+  GRADLE_SHA256: f397b287023acdba1e9f6fc5ea72d22dd63669d59ed4a289a29b1a76eee151c6
+
+jobs:
+  export-toolchain:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - uses: android-actions/setup-android@v3
+        with:
+          accept-android-sdk-licenses: true
+
+      - name: Install Android SDK 36 tooling
+        shell: bash
+        run: |
+          set -euo pipefail
+          yes | sdkmanager --licenses >/dev/null 2>&1 || true
+          sdkmanager \
+            'platform-tools' \
+            'platforms;android-36' \
+            'build-tools;35.0.0' \
+            'build-tools;36.0.0'
+
+      - name: Download and verify Gradle 8.11.1
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$HOME/bootstrap"
+          curl -fL --retry 3 --retry-delay 2 \
+            -o "$HOME/bootstrap/gradle-8.11.1-bin.zip" \
+            'https://github.com/gradle/gradle-distributions/releases/download/v8.11.1/gradle-8.11.1-bin.zip'
+          echo "$GRADLE_SHA256  $HOME/bootstrap/gradle-8.11.1-bin.zip" | sha256sum -c -
+          unzip -q "$HOME/bootstrap/gradle-8.11.1-bin.zip" -d "$HOME/bootstrap"
+          "$HOME/bootstrap/gradle-8.11.1/bin/gradle" --version
+
+      - name: Reconstruct already-public Build 35 source and warm caches
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p src
+          shopt -s nullglob
+          chunks=(payload/b64chunk_*)
+          if (( ${#chunks[@]} > 0 )); then
+            cat "${chunks[@]}" | base64 -d > /tmp/src.zip
+          else
+            curl -fL --retry 3 --retry-delay 2 -o /tmp/src.zip "$SOURCE_ZIP_URL"
+          fi
+          ACTUAL="$(sha256sum /tmp/src.zip | awk '{print $1}')"
+          test "$ACTUAL" = "$EXPECTED_SOURCE_SHA256"
+          unzip -q /tmp/src.zip -d src
+          chmod +x src/gradlew
+          printf 'sdk.dir=%s\n' "$ANDROID_HOME" > src/local.properties
+          cd src
+          ./gradlew --no-daemon --version
+          ./gradlew --no-daemon testDebugUnitTest
+          ./gradlew --no-daemon :app:compileDebugKotlin
+          ./gradlew --no-daemon lintDebug || true
+          ./gradlew --no-daemon assembleDebug
+
+      - name: Package reusable toolchain and dependency cache
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf export-root
+          mkdir -p export-root/gradle-bootstrap export-root/android-sdk export-root/gradle-user-home
+          cp -a "$HOME/bootstrap/gradle-8.11.1" export-root/gradle-bootstrap/
+          cp -a "$ANDROID_HOME/platforms" export-root/android-sdk/
+          cp -a "$ANDROID_HOME/build-tools" export-root/android-sdk/
+          cp -a "$ANDROID_HOME/platform-tools" export-root/android-sdk/
+          cp -a "$ANDROID_HOME/licenses" export-root/android-sdk/ 2>/dev/null || true
+          cp -a "$HOME/.gradle/caches" export-root/gradle-user-home/
+          cp -a "$HOME/.gradle/wrapper" export-root/gradle-user-home/ 2>/dev/null || true
+          cp -a "$HOME/.gradle/native" export-root/gradle-user-home/ 2>/dev/null || true
+          cp -a "$HOME/.gradle/jdks" export-root/gradle-user-home/ 2>/dev/null || true
+          printf '%s\n' 'OpenJDK 21 toolchain export for INTERCEPT Build 35' > export-root/README.txt
+          tar -C export-root -czf INTERCEPT_BUILD35_ANDROID_TOOLCHAIN_JDK21.tar.gz .
+          sha256sum INTERCEPT_BUILD35_ANDROID_TOOLCHAIN_JDK21.tar.gz > INTERCEPT_BUILD35_ANDROID_TOOLCHAIN_JDK21.tar.gz.sha256
+          du -h INTERCEPT_BUILD35_ANDROID_TOOLCHAIN_JDK21.tar.gz
+
+      - name: Upload toolchain artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: INTERCEPT_BUILD35_ANDROID_TOOLCHAIN_JDK21
+          path: |
+            INTERCEPT_BUILD35_ANDROID_TOOLCHAIN_JDK21.tar.gz
+            INTERCEPT_BUILD35_ANDROID_TOOLCHAIN_JDK21.tar.gz.sha256
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7
