@@ -1,0 +1,122 @@
+name: Export Build 35 Android Toolchain Chunked
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/export-android-toolchain-chunked.yml'
+
+env:
+  EXPECTED_SOURCE_SHA256: 699b17ac3721dfe91da048bab0568b06408ff63178f9f0d8237d971e03b38756
+  SOURCE_ZIP_URL: https://litter.catbox.moe/o954bz.zip
+  GRADLE_SHA256: f397b287023acdba1e9f6fc5ea72d22dd63669d59ed4a289a29b1a76eee151c6
+
+jobs:
+  export-chunked:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v3
+        with:
+          accept-android-sdk-licenses: true
+
+      - name: Install Android SDK 36 and Gradle 8.11.1
+        shell: bash
+        run: |
+          set -euo pipefail
+          yes | sdkmanager --licenses >/dev/null 2>&1 || true
+          sdkmanager 'platform-tools' 'platforms;android-36' 'build-tools;35.0.0' 'build-tools;36.0.0'
+          mkdir -p "$HOME/bootstrap"
+          curl -fL --retry 3 --retry-delay 2 -o "$HOME/bootstrap/gradle.zip" \
+            'https://github.com/gradle/gradle-distributions/releases/download/v8.11.1/gradle-8.11.1-bin.zip'
+          echo "$GRADLE_SHA256  $HOME/bootstrap/gradle.zip" | sha256sum -c -
+          unzip -q "$HOME/bootstrap/gradle.zip" -d "$HOME/bootstrap"
+
+      - name: Warm exact Build 35 dependency set
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p src
+          shopt -s nullglob
+          chunks=(payload/b64chunk_*)
+          if (( ${#chunks[@]} > 0 )); then
+            cat "${chunks[@]}" | base64 -d > /tmp/src.zip
+          else
+            curl -fL --retry 3 --retry-delay 2 -o /tmp/src.zip "$SOURCE_ZIP_URL"
+          fi
+          test "$(sha256sum /tmp/src.zip | awk '{print $1}')" = "$EXPECTED_SOURCE_SHA256"
+          unzip -q /tmp/src.zip -d src
+          chmod +x src/gradlew
+          printf 'sdk.dir=%s\n' "$ANDROID_HOME" > src/local.properties
+          cd src
+          ./gradlew --no-daemon testDebugUnitTest :app:compileDebugKotlin assembleDebug
+
+      - name: Create deterministic offline bundle and chunks
+        shell: bash
+        run: |
+          set -euo pipefail
+          ITEMS=()
+          for p in caches/modules-2 caches/8.11.1 caches/jars-9 caches/transforms-4 caches/transforms-3 wrapper native; do
+            if [ -e "$HOME/.gradle/$p" ]; then ITEMS+=("$p"); fi
+          done
+          tar -I 'zstd -T0 -3' -cf INTERCEPT_BUILD35_OFFLINE_TOOLCHAIN_JDK21.tar.zst \
+            -C "$HOME/bootstrap" gradle-8.11.1 \
+            -C "$ANDROID_HOME" platforms/android-36 build-tools/35.0.0 build-tools/36.0.0 platform-tools licenses \
+            -C "$HOME/.gradle" "${ITEMS[@]}"
+          sha256sum INTERCEPT_BUILD35_OFFLINE_TOOLCHAIN_JDK21.tar.zst > TOOLCHAIN_SHA256.txt
+          split -b 300M -d -a 2 INTERCEPT_BUILD35_OFFLINE_TOOLCHAIN_JDK21.tar.zst toolchain.part.
+          sha256sum toolchain.part.* > PARTS_SHA256.txt
+          ls -lh INTERCEPT_BUILD35_OFFLINE_TOOLCHAIN_JDK21.tar.zst toolchain.part.*
+
+      - name: Upload manifest
+        uses: actions/upload-artifact@v4
+        with:
+          name: TOOLCHAIN_MANIFEST
+          path: |
+            TOOLCHAIN_SHA256.txt
+            PARTS_SHA256.txt
+          compression-level: 0
+          retention-days: 7
+
+      - name: Upload part 00
+        uses: actions/upload-artifact@v4
+        with: {name: TOOLCHAIN_PART_00, path: toolchain.part.00, compression-level: 0, if-no-files-found: ignore, retention-days: 7}
+      - name: Upload part 01
+        uses: actions/upload-artifact@v4
+        with: {name: TOOLCHAIN_PART_01, path: toolchain.part.01, compression-level: 0, if-no-files-found: ignore, retention-days: 7}
+      - name: Upload part 02
+        uses: actions/upload-artifact@v4
+        with: {name: TOOLCHAIN_PART_02, path: toolchain.part.02, compression-level: 0, if-no-files-found: ignore, retention-days: 7}
+      - name: Upload part 03
+        uses: actions/upload-artifact@v4
+        with: {name: TOOLCHAIN_PART_03, path: toolchain.part.03, compression-level: 0, if-no-files-found: ignore, retention-days: 7}
+      - name: Upload part 04
+        uses: actions/upload-artifact@v4
+        with: {name: TOOLCHAIN_PART_04, path: toolchain.part.04, compression-level: 0, if-no-files-found: ignore, retention-days: 7}
+      - name: Upload part 05
+        uses: actions/upload-artifact@v4
+        with: {name: TOOLCHAIN_PART_05, path: toolchain.part.05, compression-level: 0, if-no-files-found: ignore, retention-days: 7}
+      - name: Upload part 06
+        uses: actions/upload-artifact@v4
+        with: {name: TOOLCHAIN_PART_06, path: toolchain.part.06, compression-level: 0, if-no-files-found: ignore, retention-days: 7}
+      - name: Upload part 07
+        uses: actions/upload-artifact@v4
+        with: {name: TOOLCHAIN_PART_07, path: toolchain.part.07, compression-level: 0, if-no-files-found: ignore, retention-days: 7}
+      - name: Upload part 08
+        uses: actions/upload-artifact@v4
+        with: {name: TOOLCHAIN_PART_08, path: toolchain.part.08, compression-level: 0, if-no-files-found: ignore, retention-days: 7}
+      - name: Upload part 09
+        uses: actions/upload-artifact@v4
+        with: {name: TOOLCHAIN_PART_09, path: toolchain.part.09, compression-level: 0, if-no-files-found: ignore, retention-days: 7}
+      - name: Upload part 10
+        uses: actions/upload-artifact@v4
+        with: {name: TOOLCHAIN_PART_10, path: toolchain.part.10, compression-level: 0, if-no-files-found: ignore, retention-days: 7}
+      - name: Upload part 11
+        uses: actions/upload-artifact@v4
+        with: {name: TOOLCHAIN_PART_11, path: toolchain.part.11, compression-level: 0, if-no-files-found: ignore, retention-days: 7}
