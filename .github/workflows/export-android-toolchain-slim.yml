@@ -1,0 +1,94 @@
+name: Export Build 35 Android Toolchain Slim
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/export-android-toolchain-slim.yml'
+
+env:
+  EXPECTED_SOURCE_SHA256: 699b17ac3721dfe91da048bab0568b06408ff63178f9f0d8237d971e03b38756
+  SOURCE_ZIP_URL: https://litter.catbox.moe/o954bz.zip
+  GRADLE_SHA256: f397b287023acdba1e9f6fc5ea72d22dd63669d59ed4a289a29b1a76eee151c6
+
+jobs:
+  export-slim:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v3
+        with:
+          accept-android-sdk-licenses: true
+
+      - name: Install exact Android tooling
+        shell: bash
+        run: |
+          set -euo pipefail
+          yes | sdkmanager --licenses >/dev/null 2>&1 || true
+          sdkmanager 'platform-tools' 'platforms;android-36' 'build-tools;35.0.0' 'build-tools;36.0.0'
+
+      - name: Install exact Gradle
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$HOME/bootstrap"
+          curl -fL --retry 3 --retry-delay 2 -o "$HOME/bootstrap/gradle.zip" \
+            'https://github.com/gradle/gradle-distributions/releases/download/v8.11.1/gradle-8.11.1-bin.zip'
+          echo "$GRADLE_SHA256  $HOME/bootstrap/gradle.zip" | sha256sum -c -
+          unzip -q "$HOME/bootstrap/gradle.zip" -d "$HOME/bootstrap"
+
+      - name: Warm exact INTERCEPT dependency set
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p src
+          shopt -s nullglob
+          chunks=(payload/b64chunk_*)
+          if (( ${#chunks[@]} > 0 )); then
+            cat "${chunks[@]}" | base64 -d > /tmp/src.zip
+          else
+            curl -fL --retry 3 --retry-delay 2 -o /tmp/src.zip "$SOURCE_ZIP_URL"
+          fi
+          test "$(sha256sum /tmp/src.zip | awk '{print $1}')" = "$EXPECTED_SOURCE_SHA256"
+          unzip -q /tmp/src.zip -d src
+          chmod +x src/gradlew
+          printf 'sdk.dir=%s\n' "$ANDROID_HOME" > src/local.properties
+          cd src
+          ./gradlew --no-daemon testDebugUnitTest :app:compileDebugKotlin assembleDebug
+
+      - name: Make lean offline bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          ROOT="$PWD/slim-root"
+          mkdir -p "$ROOT/gradle" "$ROOT/android-sdk" "$ROOT/gradle-home/caches" "$ROOT/gradle-home/wrapper"
+          cp -a "$HOME/bootstrap/gradle-8.11.1" "$ROOT/gradle/"
+          cp -a "$ANDROID_HOME/platforms/android-36" "$ROOT/android-sdk/platforms-android-36"
+          cp -a "$ANDROID_HOME/build-tools/35.0.0" "$ROOT/android-sdk/build-tools-35.0.0"
+          cp -a "$ANDROID_HOME/build-tools/36.0.0" "$ROOT/android-sdk/build-tools-36.0.0"
+          cp -a "$ANDROID_HOME/platform-tools" "$ROOT/android-sdk/platform-tools"
+          cp -a "$ANDROID_HOME/licenses" "$ROOT/android-sdk/licenses" 2>/dev/null || true
+          for d in modules-2 8.11.1 jars-9 transforms-4 transforms-3; do
+            if [ -d "$HOME/.gradle/caches/$d" ]; then cp -a "$HOME/.gradle/caches/$d" "$ROOT/gradle-home/caches/"; fi
+          done
+          cp -a "$HOME/.gradle/wrapper/." "$ROOT/gradle-home/wrapper/" 2>/dev/null || true
+          find "$ROOT" -type f -printf '%P\n' | sort > "$ROOT/FILELIST.txt"
+          tar -I 'zstd -T0 -3' -cf INTERCEPT_BUILD35_ANDROID_TOOLCHAIN_SLIM_JDK21.tar.zst -C "$ROOT" .
+          sha256sum INTERCEPT_BUILD35_ANDROID_TOOLCHAIN_SLIM_JDK21.tar.zst > INTERCEPT_BUILD35_ANDROID_TOOLCHAIN_SLIM_JDK21.tar.zst.sha256
+          ls -lh INTERCEPT_BUILD35_ANDROID_TOOLCHAIN_SLIM_JDK21.tar.zst
+
+      - name: Upload slim toolchain
+        uses: actions/upload-artifact@v4
+        with:
+          name: INTERCEPT_BUILD35_ANDROID_TOOLCHAIN_SLIM_JDK21
+          path: |
+            INTERCEPT_BUILD35_ANDROID_TOOLCHAIN_SLIM_JDK21.tar.zst
+            INTERCEPT_BUILD35_ANDROID_TOOLCHAIN_SLIM_JDK21.tar.zst.sha256
+          compression-level: 0
+          retention-days: 7
