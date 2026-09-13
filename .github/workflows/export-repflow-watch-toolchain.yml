@@ -39,7 +39,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p probe/wear/src/main/java/net/nexarenew/probe probe/wear/src/main/res/values probe/repflow-wear-contract/src/main/java/net/nexarenew/contract
+          mkdir -p probe/wear/src/main/java/net/nexarenew/repflow/wear probe/wear/src/main/res/values probe/repflow-wear-contract/src/main/java/net/nexarenew/contract
           cat > probe/settings.gradle <<'EOF'
           pluginManagement { repositories { google(); mavenCentral(); gradlePluginPortal() } }
           dependencyResolutionManagement {
@@ -119,8 +119,8 @@ jobs:
           cat > probe/wear/src/main/res/values/styles.xml <<'EOF'
           <resources><style name="AppTheme" parent="android:style/Theme.Material.Light.NoActionBar" /></resources>
           EOF
-          cat > probe/wear/src/main/java/net/nexarenew/probe/ProbeActivity.kt <<'EOF'
-          package net.nexarenew.probe
+          cat > probe/wear/src/main/java/net/nexarenew/repflow/wear/ProbeActivity.kt <<'EOF'
+          package net.nexarenew.repflow.wear
           import android.app.Activity
           class ProbeActivity : Activity()
           EOF
@@ -131,9 +131,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p export/sdk export/gradle-cache export/gradle-dist
-          cp -a "$ANDROID_SDK_ROOT/platforms/android-36" export/sdk/
-          cp -a "$ANDROID_SDK_ROOT/build-tools/36.0.0" export/sdk/
+          mkdir -p export/sdk
+          mkdir -p export/sdk/platforms export/sdk/build-tools
+          cp -a "$ANDROID_SDK_ROOT/platforms/android-36" export/sdk/platforms/
+          cp -a "$ANDROID_SDK_ROOT/build-tools/36.0.0" export/sdk/build-tools/
           cp -a "$ANDROID_SDK_ROOT/platform-tools" export/sdk/
           cp -a "$ANDROID_SDK_ROOT/licenses" export/sdk/ || true
           tar -I 'zstd -10 -T0' -cf export/android-sdk36.tar.zst -C export/sdk .
