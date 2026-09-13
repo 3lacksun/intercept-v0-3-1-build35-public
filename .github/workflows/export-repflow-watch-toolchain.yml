@@ -106,7 +106,7 @@ jobs:
               implementation 'androidx.room:room-ktx:2.8.5'
               kapt 'androidx.room:room-compiler:2.8.5'
               implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2'
-              implementation 'androidx.core:core-ktx:1.19.0'
+              implementation 'androidx.core:core-ktx:1.17.0'
               implementation 'androidx.wear:wear-ongoing:1.1.0'
               implementation 'androidx.health:health-services-client:1.0.0'
               implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.10.2'
