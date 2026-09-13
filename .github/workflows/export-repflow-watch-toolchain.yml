@@ -1,0 +1,158 @@
+name: Export RepFlow Watch Android Toolchain
+
+on:
+  push:
+    branches: [repflow-watch-toolchain-export-13092026]
+    paths:
+      - '.github/workflows/export-repflow-watch-toolchain.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  export-toolchain:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK 36
+        shell: bash
+        run: |
+          set -euo pipefail
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager 'platform-tools' 'platforms;android-36' 'build-tools;36.0.0'
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.14.3'
+
+      - name: Resolve exact RepFlow Watch build dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p probe/wear/src/main/java/net/nexarenew/probe probe/wear/src/main/res/values probe/repflow-wear-contract/src/main/java/net/nexarenew/contract
+          cat > probe/settings.gradle <<'EOF'
+          pluginManagement { repositories { google(); mavenCentral(); gradlePluginPortal() } }
+          dependencyResolutionManagement {
+              repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+              repositories { google(); mavenCentral() }
+          }
+          rootProject.name='RepFlowWatchDependencyProbe'
+          include ':repflow-wear-contract', ':wear'
+          EOF
+          cat > probe/build.gradle <<'EOF'
+          buildscript {
+              repositories { google(); mavenCentral(); gradlePluginPortal() }
+              dependencies {
+                  classpath 'com.android.tools.build:gradle:8.13.0'
+                  classpath 'org.jetbrains.kotlin:kotlin-gradle-plugin:2.3.21'
+                  classpath 'org.jetbrains.kotlin.plugin.compose:org.jetbrains.kotlin.plugin.compose.gradle.plugin:2.3.21'
+              }
+          }
+          EOF
+          cat > probe/gradle.properties <<'EOF'
+          org.gradle.jvmargs=-Xmx3g -Dfile.encoding=UTF-8
+          android.useAndroidX=true
+          kotlin.code.style=official
+          EOF
+          cat > probe/repflow-wear-contract/build.gradle <<'EOF'
+          apply plugin: 'com.android.library'
+          apply plugin: 'org.jetbrains.kotlin.android'
+          android {
+              namespace 'net.nexarenew.repflow.wear.contract'
+              compileSdk 36
+              defaultConfig { minSdk 30 }
+              compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
+              kotlinOptions { jvmTarget = '17' }
+          }
+          EOF
+          cat > probe/repflow-wear-contract/src/main/AndroidManifest.xml <<'EOF'
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android" />
+          EOF
+          cat > probe/repflow-wear-contract/src/main/java/net/nexarenew/contract/Probe.kt <<'EOF'
+          package net.nexarenew.contract
+          object Probe
+          EOF
+          cat > probe/wear/build.gradle <<'EOF'
+          apply plugin: 'com.android.application'
+          apply plugin: 'org.jetbrains.kotlin.android'
+          apply plugin: 'org.jetbrains.kotlin.kapt'
+          apply plugin: 'org.jetbrains.kotlin.plugin.compose'
+          android {
+              namespace 'net.nexarenew.repflow.wear'
+              compileSdk 36
+              defaultConfig { applicationId 'net.nexarenew.repflow'; minSdk 30; targetSdk 36; versionCode 9; versionName '1.0.0-capacitor.9' }
+              buildFeatures { compose true }
+              compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
+              kotlinOptions { jvmTarget = '17' }
+          }
+          dependencies {
+              implementation project(':repflow-wear-contract')
+              implementation 'com.google.android.gms:play-services-wearable:20.0.1'
+              implementation 'androidx.activity:activity-compose:1.13.0'
+              implementation 'androidx.wear.compose:compose-foundation:1.6.2'
+              implementation 'androidx.wear.compose:compose-material:1.6.2'
+              implementation 'androidx.lifecycle:lifecycle-runtime-ktx:2.10.0'
+              implementation 'androidx.room:room-runtime:2.8.5'
+              implementation 'androidx.room:room-ktx:2.8.5'
+              kapt 'androidx.room:room-compiler:2.8.5'
+              implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2'
+              implementation 'androidx.core:core-ktx:1.19.0'
+              implementation 'androidx.wear:wear-ongoing:1.1.0'
+              implementation 'androidx.health:health-services-client:1.0.0'
+              implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.10.2'
+              implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-guava:1.10.2'
+          }
+          EOF
+          cat > probe/wear/src/main/AndroidManifest.xml <<'EOF'
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android"><application android:theme="@style/AppTheme"><activity android:name=".ProbeActivity" android:exported="true" /></application></manifest>
+          EOF
+          cat > probe/wear/src/main/res/values/styles.xml <<'EOF'
+          <resources><style name="AppTheme" parent="android:style/Theme.Material.Light.NoActionBar" /></resources>
+          EOF
+          cat > probe/wear/src/main/java/net/nexarenew/probe/ProbeActivity.kt <<'EOF'
+          package net.nexarenew.probe
+          import android.app.Activity
+          class ProbeActivity : Activity()
+          EOF
+          cd probe
+          gradle --no-daemon --stacktrace :repflow-wear-contract:assembleDebug :wear:assembleDebug :wear:lintDebug
+
+      - name: Export SDK Gradle and dependency cache
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p export/sdk export/gradle-cache export/gradle-dist
+          cp -a "$ANDROID_SDK_ROOT/platforms/android-36" export/sdk/
+          cp -a "$ANDROID_SDK_ROOT/build-tools/36.0.0" export/sdk/
+          cp -a "$ANDROID_SDK_ROOT/platform-tools" export/sdk/
+          cp -a "$ANDROID_SDK_ROOT/licenses" export/sdk/ || true
+          tar -I 'zstd -10 -T0' -cf export/android-sdk36.tar.zst -C export/sdk .
+          tar -I 'zstd -10 -T0' -cf export/gradle-modules2.tar.zst -C "$HOME/.gradle/caches" modules-2
+          GRADLE_BIN="$(readlink -f "$(command -v gradle)")"
+          GRADLE_HOME="$(dirname "$(dirname "$GRADLE_BIN")")"
+          echo "$GRADLE_HOME" > export/GRADLE_HOME.txt
+          tar -I 'zstd -10 -T0' -cf export/gradle-8.14.3.tar.zst -C "$GRADLE_HOME" .
+          sha256sum export/*.tar.zst > export/SHA256SUMS.txt
+          ls -lh export/*.tar.zst
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: repflow-watch-toolchain-android36-gradle8143
+          path: |
+            export/android-sdk36.tar.zst
+            export/gradle-8.14.3.tar.zst
+            export/gradle-modules2.tar.zst
+            export/SHA256SUMS.txt
+            export/GRADLE_HOME.txt
+          if-no-files-found: error
+          retention-days: 7
