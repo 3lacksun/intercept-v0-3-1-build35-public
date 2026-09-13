@@ -1,0 +1,54 @@
+name: Export RepFlow Capacitor 8.5.0 Dependencies
+
+on:
+  push:
+    branches: [repflow-watch-toolchain-export-13092026]
+    paths:
+      - '.github/workflows/export-repflow-capacitor85.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  export-capacitor:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install exact Capacitor 8.5.0 dependency set
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir probe && cd probe
+          cat > package.json <<'EOF'
+          {
+            "name":"repflow-capacitor85-dependency-export",
+            "version":"1.0.0",
+            "private":true,
+            "dependencies":{
+              "@capacitor/android":"8.5.0",
+              "@capacitor/core":"8.5.0"
+            },
+            "devDependencies":{
+              "@capacitor/cli":"8.5.0"
+            }
+          }
+          EOF
+          npm install --ignore-scripts --no-audit --no-fund
+          test "$(node_modules/.bin/cap --version)" = "8.5.0"
+          tar -I 'zstd -10 -T0' -cf ../capacitor-8.5.0-node_modules.tar.zst node_modules package-lock.json
+          cd ..
+          sha256sum capacitor-8.5.0-node_modules.tar.zst > capacitor-8.5.0-node_modules.sha256
+          ls -lh capacitor-8.5.0-node_modules.tar.zst
+      - uses: actions/upload-artifact@v4
+        with:
+          name: repflow-capacitor-8.5.0-node-modules
+          path: |
+            capacitor-8.5.0-node_modules.tar.zst
+            capacitor-8.5.0-node_modules.sha256
+          if-no-files-found: error
+          retention-days: 7
