@@ -47,7 +47,10 @@ jobs:
           cat > phoneprobe/build.gradle <<'EOF'
           buildscript {
               repositories { google(); mavenCentral(); gradlePluginPortal() }
-              dependencies { classpath 'com.android.tools.build:gradle:8.13.0' }
+              dependencies {
+                  classpath 'com.android.tools.build:gradle:8.13.0'
+                  classpath 'com.google.gms:google-services:4.4.4'
+              }
           }
           EOF
           cat > phoneprobe/gradle.properties <<'EOF'
@@ -101,7 +104,7 @@ jobs:
           ls -lh export/phone-gradle-modules2.tar.zst
       - uses: actions/upload-artifact@v4
         with:
-          name: repflow-capacitor-phone-gradle-modules2
+          name: repflow-capacitor-phone-gradle-modules2-final
           path: |
             export/phone-gradle-modules2.tar.zst
             export/SHA256SUMS.txt
