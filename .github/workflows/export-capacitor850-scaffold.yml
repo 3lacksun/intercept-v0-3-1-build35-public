@@ -1,0 +1,52 @@
+name: Export Capacitor 8.5.0 Android Scaffold
+
+on:
+  push:
+    branches: [repflow-watch-toolchain-export-13092026]
+    paths:
+      - '.github/workflows/export-capacitor850-scaffold.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  scaffold:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Generate generic Capacitor Android 8.5.0 scaffold
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/cap850 && mkdir -p /tmp/cap850/www
+          cd /tmp/cap850
+          cat > package.json <<'EOF'
+          {"name":"cap850-scaffold","version":"1.0.0","private":true,"dependencies":{"@capacitor/android":"8.5.0","@capacitor/core":"8.5.0"},"devDependencies":{"@capacitor/cli":"8.5.0"}}
+          EOF
+          cat > capacitor.config.json <<'EOF'
+          {"appId":"net.nexarenew.repflow","appName":"RepFlow","webDir":"www","android":{"backgroundColor":"#030914"}}
+          EOF
+          printf '<!doctype html><html><body>scaffold</body></html>\n' > www/index.html
+          npm install --no-audit --no-fund
+          npx cap add android
+          npx cap sync android
+          mkdir -p export/node_modules/@capacitor/android
+          cp -a android export/android
+          cp -a node_modules/@capacitor/android/capacitor export/node_modules/@capacitor/android/
+          cp -a node_modules/@capacitor/android/package.json export/node_modules/@capacitor/android/
+          tar -I 'zstd -10 -T0' -cf capacitor850-android-scaffold.tar.zst -C export .
+          sha256sum capacitor850-android-scaffold.tar.zst > SHA256SUMS.txt
+          ls -lh capacitor850-android-scaffold.tar.zst
+      - uses: actions/upload-artifact@v4
+        with:
+          name: capacitor850-android-scaffold
+          path: |
+            /tmp/cap850/capacitor850-android-scaffold.tar.zst
+            /tmp/cap850/SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 7
