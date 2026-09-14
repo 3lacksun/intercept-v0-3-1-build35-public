@@ -1,0 +1,35 @@
+name: INTERCEPT P0 Prior Build35 Source Recovery
+
+on:
+  push:
+    branches:
+      - intercept-build35-uiux-p0-final-14092026
+    paths:
+      - '.github/workflows/p0-old-source-probe.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  recover:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Recover previously public SHA-pinned Build35 archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --location --retry 3 --retry-delay 2 --connect-timeout 20 --max-time 180 \
+            'https://litter.catbox.moe/o954bz.zip' -o /tmp/prior.zip
+          sha256sum /tmp/prior.zip
+          test "$(sha256sum /tmp/prior.zip | awk '{print $1}')" = '699b17ac3721dfe91da048bab0568b06408ff63178f9f0d8237d971e03b38756'
+          unzip -t /tmp/prior.zip >/dev/null
+          cp /tmp/prior.zip PRIOR_BUILD35_SOURCE.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: PRIOR_BUILD35_SOURCE
+          path: PRIOR_BUILD35_SOURCE.zip
+          if-no-files-found: error
+          retention-days: 1
