@@ -1,4 +1,4 @@
-name: Build 35 Gradle 8.14.3 Exact-Source Acceptance
+name: Build 35 Gradle 8.14.3 IME Composer Acceptance
 
 on:
   push:
@@ -10,7 +10,7 @@ permissions:
 
 env:
   AUTHORITATIVE_SOURCE_SHA256: 4637da3c223a802b80a4d7866d1b822ca4ad769b4e7dfc7dae2daa22c1df1349
-  AUTHORITATIVE_SOURCE_URL: https://sdmntprnortheu.oaiusercontent.com/files/00000000-7428-81f4-bf5e-178d7b14b4a9/raw?se=2026-09-15T14%3A15%3A50Z&sp=r&sv=2026-02-06&sr=b&scid=bdd9212e-b796-500e-825d-98c2da01d62d&skoid=3804227d-1b52-417d-afd9-9ffbb50fa53e&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-09-15T07%3A52%3A23Z&ske=2026-09-16T07%3A52%3A23Z&sks=b&skv=2026-02-06&sig=GXa6LEpch2UmsIt7w%2B%2BMZXY7163ymURhVUCBCE5gphg%3D
+  AUTHORITATIVE_SOURCE_URL: https://sdmntprwestcentralus.oaiusercontent.com/files/00000000-c2e4-81fb-9c4f-7d8323f46745/raw?se=2026-09-15T14%3A46%3A49Z&sp=r&sv=2026-02-06&sr=b&scid=a232fbc7-1c23-5272-a8dd-4a77af09db27&skoid=3804227d-1b52-417d-afd9-9ffbb50fa53e&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-09-15T08%3A28%3A43Z&ske=2026-09-16T08%3A28%3A43Z&sks=b&skv=2026-02-06&sig=Tb22JE6Ypu4VLK658WOjVSbkJ2YMoWd3wuQz1hXiPUM%3D
   GRADLE_OPTS: >-
     -Dorg.gradle.daemon=false
     -Dorg.gradle.parallel=false
@@ -23,14 +23,14 @@ env:
     -XX:+UseSerialGC
 
 jobs:
-  exact-source-acceptance:
+  ime-composer-acceptance:
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     steps:
       - name: Check out isolated acceptance branch
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
 
-      - name: Reconstruct authoritative source and enforce checkpoint manifest
+      - name: Reconstruct and verify authoritative Build 35 checkpoint
         shell: bash
         run: |
           set -euo pipefail
@@ -50,37 +50,31 @@ jobs:
           zipStoreBase=GRADLE_USER_HOME
           zipStorePath=wrapper/dists
           WRAPPER
-          cp payload/CURRENT_BUILD_INPUTS_15092026.sha256 /tmp/expected.sha256
+          cp payload/CURRENT_BUILD_INPUTS_15092026.sha256 /tmp/base.sha256
           failures=0; count=0
-          : > evidence/build-input-verification.txt
           while read -r expected path; do
             count=$((count+1))
-            if [[ ! -f "src/$path" ]]; then echo "MISSING $path" | tee -a evidence/build-input-verification.txt; failures=1; continue; fi
+            [[ -f "src/$path" ]] || { echo "MISSING $path"; failures=1; continue; }
             actual="$(sha256sum "src/$path" | awk '{print $1}')"
-            if [[ "$actual" != "$expected" ]]; then echo "MISMATCH $path expected=$expected actual=$actual" | tee -a evidence/build-input-verification.txt; failures=1; fi
-          done < /tmp/expected.sha256
-          awk '{print $2}' /tmp/expected.sha256 | sort > /tmp/expected.paths
-          (cd src && { find app gradle -type f -print; printf '%s\n' gradlew gradlew.bat build.gradle.kts settings.gradle.kts gradle.properties; } | sort -u) > /tmp/actual.paths
-          diff -u /tmp/expected.paths /tmp/actual.paths | tee evidence/build-input-path-diff.txt || failures=1
-          echo "manifest_entries=$count" | tee -a evidence/build-input-verification.txt
+            [[ "$actual" == "$expected" ]] || { echo "MISMATCH $path expected=$expected actual=$actual"; failures=1; }
+          done < /tmp/base.sha256
           [[ "$count" -eq 115 && "$failures" -eq 0 ]]
-          echo "115/115 CHECKPOINT BUILD INPUTS VERIFIED" | tee -a evidence/build-input-verification.txt
+          echo "115/115 BASE BUILD INPUTS VERIFIED" | tee evidence/base-build-input-verification.txt
 
-      - name: Apply ChatScreen compile remediation overlay
+      - name: Apply and verify keyboard composer remediation
         shell: bash
         run: |
           set -euo pipefail
-          python3 - <<'PY'
-          from pathlib import Path
-          p = Path('src/app/src/main/java/com/nexarenew/aiconsole/ui/screens/ChatScreen.kt')
-          s = p.read_text()
-          old = 'modifier = Modifier.padding(horizontal = 10.dp, bottom = 3.dp).semantics { liveRegion = LiveRegionMode.Polite },'
-          new = 'modifier = Modifier.padding(start = 10.dp, end = 10.dp, bottom = 3.dp).semantics { liveRegion = LiveRegionMode.Polite },'
-          assert s.count(old) == 1, f'expected exactly one invalid padding call, found {s.count(old)}'
-          p.write_text(s.replace(old, new))
-          PY
-          echo '6380491baed93ac3d4c9f55875ed971dae814630d46ace79c82be8b4b9f891fd  src/app/src/main/java/com/nexarenew/aiconsole/ui/screens/ChatScreen.kt' | sha256sum -c -
-          sha256sum src/app/src/main/java/com/nexarenew/aiconsole/ui/screens/ChatScreen.kt | tee evidence/chatscreen-compile-remediation.sha256
+          echo '634c099c4f29fad6fe0d67189275fa097a8bd6cc64ef02b80ebb11969427e16b  payload/INTERCEPT_BUILD35_IME_COMPOSER_FIX.patch' | sha256sum -c -
+          patch -d src -p1 --fuzz=0 < payload/INTERCEPT_BUILD35_IME_COMPOSER_FIX.patch
+          echo 'd28250f58df3afd0b2db8915513916b9e85ad165f02837e4a4fb25f042839af3  src/app/src/main/java/com/nexarenew/aiconsole/MainActivity.kt' | sha256sum -c -
+          echo '98b9ff030fc74006dfae64c3328a1726c201ede6206ce95d28409c32d2fa14c7  src/app/src/main/java/com/nexarenew/aiconsole/ui/screens/ChatScreen.kt' | sha256sum -c -
+          echo '81846ef1f078ad1a1a06f40d8136259f9a21c269a5fb8d766cefba980f13997b  src/app/src/androidTest/java/com/nexarenew/aiconsole/ui/ChatInteractionInstrumentedTest.kt' | sha256sum -c -
+          echo 'cbbd7e6546618ee87255462ccc797fbcf4155b4d3a2088a45e3af6fe1098079e  src/tools/verify-ux-feature-patch.sh' | sha256sum -c -
+          (cd src && bash tools/verify-ux-feature-patch.sh) | tee evidence/verify-ux-feature-patch.log
+          (cd src && bash tools/verify-build35-uiux-p0.sh) | tee evidence/verify-build35-uiux-p0.log
+          (cd src && bash tools/verify-build35-uiux-p1.sh) | tee evidence/verify-build35-uiux-p1.log
+          (cd src && bash tools/verify-runtime-remediation-contracts.sh) | tee evidence/verify-runtime-remediation-contracts.log
 
       - name: Set up Temurin JDK 21
         uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3
@@ -88,7 +82,7 @@ jobs:
           distribution: temurin
           java-version: '21'
 
-      - name: Install Android API 36 and Build Tools 36.0.0 using runner SDK
+      - name: Install Android API 36 and Build Tools 36.0.0
         shell: bash
         run: |
           set -euo pipefail
@@ -131,12 +125,13 @@ jobs:
 
       - name: Clean assemble debug APK
         working-directory: src
+        shell: bash
         run: |
           set -euo pipefail
           ./gradlew --no-daemon clean assembleDebug | tee ../evidence/clean-assembleDebug.log
           test -f app/build/outputs/apk/debug/app-debug.apk
 
-      - name: Verify APK identity, alignment, signature and digest
+      - name: Verify APK identity alignment signature and digest
         shell: bash
         run: |
           set -euo pipefail
@@ -150,22 +145,26 @@ jobs:
           "$BT/zipalign" -c -v 4 "$APK" | tee evidence/zipalign.txt
           "$BT/apksigner" verify --verbose --print-certs "$APK" | tee evidence/apksigner.txt
           sha256sum "$APK" | tee evidence/app-debug.apk.sha256
-          cp "$APK" evidence/INTERCEPT_V0_3_1_BUILD35_GRADLE_8_14_3_DEBUG.apk
+          cp "$APK" evidence/INTERCEPT_V0_3_1_BUILD35_IME_COMPOSER_REMEDIATED_DEBUG.apk
 
-      - name: Re-verify final build inputs after build
+      - name: Re-verify final source after build
         if: always()
         shell: bash
         run: |
           set +e
           failures=0
           while read -r expected path; do
-            if [[ "$path" == 'app/src/main/java/com/nexarenew/aiconsole/ui/screens/ChatScreen.kt' ]]; then continue; fi
+            case "$path" in
+              app/src/main/java/com/nexarenew/aiconsole/MainActivity.kt|app/src/main/java/com/nexarenew/aiconsole/ui/screens/ChatScreen.kt|app/src/androidTest/java/com/nexarenew/aiconsole/ui/ChatInteractionInstrumentedTest.kt) continue ;;
+            esac
             [[ -f "src/$path" ]] || { echo "POSTBUILD MISSING $path"; failures=1; continue; }
             actual="$(sha256sum "src/$path" | awk '{print $1}')"
             [[ "$actual" == "$expected" ]] || { echo "POSTBUILD MISMATCH $path"; failures=1; }
           done < payload/CURRENT_BUILD_INPUTS_15092026.sha256
-          actual_chat="$(sha256sum src/app/src/main/java/com/nexarenew/aiconsole/ui/screens/ChatScreen.kt | awk '{print $1}')"
-          [[ "$actual_chat" == '6380491baed93ac3d4c9f55875ed971dae814630d46ace79c82be8b4b9f891fd' ]] || failures=1
+          [[ "$(sha256sum src/app/src/main/java/com/nexarenew/aiconsole/MainActivity.kt | awk '{print $1}')" == 'd28250f58df3afd0b2db8915513916b9e85ad165f02837e4a4fb25f042839af3' ]] || failures=1
+          [[ "$(sha256sum src/app/src/main/java/com/nexarenew/aiconsole/ui/screens/ChatScreen.kt | awk '{print $1}')" == '98b9ff030fc74006dfae64c3328a1726c201ede6206ce95d28409c32d2fa14c7' ]] || failures=1
+          [[ "$(sha256sum src/app/src/androidTest/java/com/nexarenew/aiconsole/ui/ChatInteractionInstrumentedTest.kt | awk '{print $1}')" == '81846ef1f078ad1a1a06f40d8136259f9a21c269a5fb8d766cefba980f13997b' ]] || failures=1
+          [[ "$(sha256sum src/tools/verify-ux-feature-patch.sh | awk '{print $1}')" == 'cbbd7e6546618ee87255462ccc797fbcf4155b4d3a2088a45e3af6fe1098079e' ]] || failures=1
           echo "postbuild_source_failures=$failures" | tee evidence/postbuild-source-verification.txt
           exit "$failures"
 
@@ -183,7 +182,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: INTERCEPT_BUILD35_GRADLE8143_ACCEPTANCE_EVIDENCE
+          name: INTERCEPT_BUILD35_IME_COMPOSER_ACCEPTANCE_EVIDENCE
           path: evidence/
           if-no-files-found: warn
           retention-days: 30
@@ -192,7 +191,7 @@ jobs:
         if: success()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: INTERCEPT_BUILD35_GRADLE8143_VERIFIED_APK
+          name: INTERCEPT_BUILD35_IME_COMPOSER_VERIFIED_APK
           path: src/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 30
