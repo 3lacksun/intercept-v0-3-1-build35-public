@@ -36,9 +36,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p src evidence
-
-          curl --fail --location --retry 3 --retry-delay 2 \
-            -o /tmp/authoritative.zip "$AUTHORITATIVE_SOURCE_URL"
+          curl --fail --location --retry 3 --retry-delay 2 -o /tmp/authoritative.zip "$AUTHORITATIVE_SOURCE_URL"
           echo "$AUTHORITATIVE_SOURCE_SHA256  /tmp/authoritative.zip" | sha256sum -c -
           sha256sum /tmp/authoritative.zip | tee evidence/authoritative-source.sha256
           unzip -t /tmp/authoritative.zip | tee evidence/authoritative-zip-test.txt
@@ -72,25 +70,14 @@ jobs:
               failures=1
             fi
           done < /tmp/expected.sha256
-
           awk '{print $2}' /tmp/expected.sha256 | sort > /tmp/expected.paths
-          (
-            cd src
-            {
-              find app gradle -type f -print
-              printf '%s\n' gradlew gradlew.bat build.gradle.kts settings.gradle.kts gradle.properties
-            } | sort -u
-          ) > /tmp/actual.paths
-          if ! diff -u /tmp/expected.paths /tmp/actual.paths | tee evidence/build-input-path-diff.txt; then
-            failures=1
-          fi
-
+          (cd src && { find app gradle -type f -print; printf '%s\n' gradlew gradlew.bat build.gradle.kts settings.gradle.kts gradle.properties; } | sort -u) > /tmp/actual.paths
+          if ! diff -u /tmp/expected.paths /tmp/actual.paths | tee evidence/build-input-path-diff.txt; then failures=1; fi
           echo "manifest_entries=$count" | tee -a evidence/build-input-verification.txt
           if [[ "$count" -ne 115 || "$failures" -ne 0 ]]; then
             echo "EXACT-SOURCE PREFLIGHT FAILED" | tee -a evidence/build-input-verification.txt
             exit 12
           fi
-
           echo "115/115 CURRENT BUILD INPUTS VERIFIED" | tee -a evidence/build-input-verification.txt
           grep -F 'gradle-8.14.3-bin.zip' src/gradle/wrapper/gradle-wrapper.properties
           grep -F 'distributionSha256Sum=bd71102213493060956ec229d946beee57158dbd89d0e62b91bca0fa2c5f3531' src/gradle/wrapper/gradle-wrapper.properties
@@ -101,18 +88,20 @@ jobs:
           distribution: temurin
           java-version: '21'
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407
-        with:
-          accept-android-sdk-licenses: true
-
-      - name: Install Android API 36 and Build Tools 36.0.0
+      - name: Install Android API 36 and Build Tools 36.0.0 using runner SDK
         shell: bash
         run: |
           set -euo pipefail
-          yes | sdkmanager --licenses >/dev/null 2>&1 || true
-          sdkmanager 'platform-tools' 'platforms;android-36' 'build-tools;36.0.0'
+          export ANDROID_HOME="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          export ANDROID_SDK_ROOT="$ANDROID_HOME"
+          SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          test -x "$SDKMANAGER"
+          yes | "$SDKMANAGER" --licenses >/dev/null 2>&1 || true
+          "$SDKMANAGER" 'platform-tools' 'platforms;android-36' 'build-tools;36.0.0'
+          echo "ANDROID_HOME=$ANDROID_HOME" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=$ANDROID_HOME" >> "$GITHUB_ENV"
           echo "sdk.dir=$ANDROID_HOME" > src/local.properties
+          "$ANDROID_HOME/build-tools/36.0.0/aapt2" version | tee evidence/aapt2-version.txt
 
       - name: Verify Gradle 8.14.3 runtime
         working-directory: src
