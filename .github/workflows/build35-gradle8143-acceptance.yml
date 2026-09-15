@@ -10,9 +10,9 @@ permissions:
 
 env:
   AUTHORITATIVE_SOURCE_SHA256: 4637da3c223a802b80a4d7866d1b822ca4ad769b4e7dfc7dae2daa22c1df1349
-  AUTHORITATIVE_SOURCE_URL: "https://sdmntprnortheu.oaiusercontent.com/files/00000000-2964-81f4-a1da-05ba5f492e96/raw?se=2026-09-15T17%3A41%3A17Z&sp=r&sv=2026-02-06&sr=b&scid=385c386e-737a-5492-8c74-a1e96e67360d&skoid=3804227d-1b52-417d-afd9-9ffbb50fa53e&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-09-15T06%3A28%3A16Z&ske=2026-09-16T06%3A28%3A16Z&sks=b&skv=2026-02-06&sig=AU94/%2Bd9JFl%2BzJmiXj8su1LMz4dNUeyciwzi0JR2Fig%3D"
+  AUTHORITATIVE_SOURCE_URL: "https://sdmntprcentralus.oaiusercontent.com/files/00000000-1824-81f5-84f5-66dc0a037d3e/raw?se=2026-09-15T17%3A47%3A46Z&sp=r&sv=2026-02-06&sr=b&scid=3715a747-e979-56f0-8fc4-49367e36fefa&skoid=3804227d-1b52-417d-afd9-9ffbb50fa53e&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-09-15T07%3A26%3A46Z&ske=2026-09-16T07%3A26%3A46Z&sks=b&skv=2026-02-06&sig=z4Or/mc0NHKtdqUXsBcxDmw3yNGPeB2HSZbFJ89zINw%3D"
   VISUAL_OVERLAY_SHA256: ec8ad6733969800408bf6667c0484364244a6222dc7c904eafe6f84e1cc5f576
-  VISUAL_OVERLAY_URL: "https://sdmntpreastus.oaiusercontent.com/files/00000000-563c-81f9-925c-991235054a7c/raw?se=2026-09-15T17%3A46%3A41Z&sp=r&sv=2026-02-06&sr=b&scid=3d31f7e5-2821-5ae5-9f56-80162a0d5ad0&skoid=3804227d-1b52-417d-afd9-9ffbb50fa53e&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-09-15T07%3A26%3A44Z&ske=2026-09-16T07%3A26%3A44Z&sks=b&skv=2026-02-06&sig=oqrUpmEbIcQMyN465RkJrU2b5G1AI0%2BHISEuGQoRS0k%3D"
+  VISUAL_OVERLAY_URL: "https://sdmntprcentralus.oaiusercontent.com/files/00000000-947c-81f5-83ca-d3e6a4a50750/raw?se=2026-09-15T17%3A47%3A55Z&sp=r&sv=2026-02-06&sr=b&scid=3efbbb4b-e36b-5c10-b11a-06b56b424309&skoid=3804227d-1b52-417d-afd9-9ffbb50fa53e&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-09-14T20%3A15%3A07Z&ske=2026-09-15T20%3A15%3A07Z&sks=b&skv=2026-02-06&sig=46C1ecNyHuEW6d5HpCHL1g/U9lcvoFa/k%2BqQAA%2Bnop8%3D"
   GRADLE_OPTS: >-
     -Dorg.gradle.daemon=false
     -Dorg.gradle.parallel=false
