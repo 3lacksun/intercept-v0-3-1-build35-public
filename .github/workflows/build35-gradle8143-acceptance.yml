@@ -9,9 +9,8 @@ permissions:
   contents: read
 
 env:
-  BASELINE_SOURCE_SHA256: 699b17ac3721dfe91da048bab0568b06408ff63178f9f0d8237d971e03b38756
-  BASELINE_SOURCE_URL: https://litter.catbox.moe/o954bz.zip
-  PATCH_SHA256: 03ad7c2a62b85e528ec75b9fe72ab6ba49c226f835bc2ed317263d7e9ac437c7
+  AUTHORITATIVE_SOURCE_SHA256: 4637da3c223a802b80a4d7866d1b822ca4ad769b4e7dfc7dae2daa22c1df1349
+  AUTHORITATIVE_SOURCE_URL: https://sdmntpritalynorth.oaiusercontent.com/files/00000000-666c-8246-ba74-5735ad8a8b24/raw?se=2026-09-15T12%3A57%3A17Z&sp=r&sv=2026-02-06&sr=b&scid=2cf987b3-b64a-5a41-8ef6-1bdab8ec47be&skoid=3804227d-1b52-417d-afd9-9ffbb50fa53e&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-09-15T05%3A35%3A23Z&ske=2026-09-16T05%3A35%3A23Z&sks=b&skv=2026-02-06&sig=kw4ZzRoMWZwV9cO0H1dg8G%2B5CiA1rYQaB0dgwluJBV0%3D
   GRADLE_OPTS: >-
     -Dorg.gradle.daemon=false
     -Dorg.gradle.parallel=false
@@ -30,7 +29,7 @@ jobs:
 
     steps:
       - name: Check out isolated acceptance branch
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
 
       - name: Reconstruct exact current source and enforce byte manifest
         shell: bash
@@ -39,20 +38,29 @@ jobs:
           mkdir -p src evidence
 
           curl --fail --location --retry 3 --retry-delay 2 \
-            -o /tmp/baseline.zip "$BASELINE_SOURCE_URL"
-          echo "$BASELINE_SOURCE_SHA256  /tmp/baseline.zip" | sha256sum -c -
-          sha256sum /tmp/baseline.zip | tee evidence/baseline-source.sha256
-          unzip -t /tmp/baseline.zip | tee evidence/baseline-zip-test.txt
-          unzip -q /tmp/baseline.zip -d src
+            -o /tmp/authoritative.zip "$AUTHORITATIVE_SOURCE_URL"
+          echo "$AUTHORITATIVE_SOURCE_SHA256  /tmp/authoritative.zip" | sha256sum -c -
+          sha256sum /tmp/authoritative.zip | tee evidence/authoritative-source.sha256
+          unzip -t /tmp/authoritative.zip | tee evidence/authoritative-zip-test.txt
+          unzip -q /tmp/authoritative.zip -d src
 
-          base64 -d payload/gradle8143_patch_known13.tar.xz.b64 > /tmp/current-patch.tar.xz
-          echo "$PATCH_SHA256  /tmp/current-patch.tar.xz" | sha256sum -c -
-          tar -xJf /tmp/current-patch.tar.xz -C src
+          cat > src/gradle/wrapper/gradle-wrapper.properties <<'WRAPPER'
+          distributionBase=GRADLE_USER_HOME
+          distributionPath=wrapper/dists
+          distributionSha256Sum=bd71102213493060956ec229d946beee57158dbd89d0e62b91bca0fa2c5f3531
+          distributionUrl=https\://services.gradle.org/distributions/gradle-8.14.3-bin.zip
+          networkTimeout=10000
+          validateDistributionUrl=true
+          zipStoreBase=GRADLE_USER_HOME
+          zipStorePath=wrapper/dists
+          WRAPPER
 
           cp payload/CURRENT_BUILD_INPUTS_15092026.sha256 /tmp/expected.sha256
           : > evidence/build-input-verification.txt
           failures=0
+          count=0
           while read -r expected path; do
+            count=$((count+1))
             if [[ ! -f "src/$path" ]]; then
               echo "MISSING $path" | tee -a evidence/build-input-verification.txt
               failures=1
@@ -77,7 +85,8 @@ jobs:
             failures=1
           fi
 
-          if [[ "$failures" -ne 0 ]]; then
+          echo "manifest_entries=$count" | tee -a evidence/build-input-verification.txt
+          if [[ "$count" -ne 115 || "$failures" -ne 0 ]]; then
             echo "EXACT-SOURCE PREFLIGHT FAILED" | tee -a evidence/build-input-verification.txt
             exit 12
           fi
@@ -87,13 +96,13 @@ jobs:
           grep -F 'distributionSha256Sum=bd71102213493060956ec229d946beee57158dbd89d0e62b91bca0fa2c5f3531' src/gradle/wrapper/gradle-wrapper.properties
 
       - name: Set up Temurin JDK 21
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3
         with:
           distribution: temurin
           java-version: '21'
 
       - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+        uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407
         with:
           accept-android-sdk-licenses: true
 
@@ -194,7 +203,7 @@ jobs:
 
       - name: Upload verification evidence
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: INTERCEPT_BUILD35_GRADLE8143_ACCEPTANCE_EVIDENCE
           path: evidence/
@@ -203,7 +212,7 @@ jobs:
 
       - name: Upload verified APK
         if: success()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: INTERCEPT_BUILD35_GRADLE8143_VERIFIED_APK
           path: src/app/build/outputs/apk/debug/app-debug.apk
