@@ -1,0 +1,167 @@
+--- a/app/src/main/java/com/nexarenew/aiconsole/MainActivity.kt
++++ b/app/src/main/java/com/nexarenew/aiconsole/MainActivity.kt
+@@ -40,6 +40,8 @@
+ import androidx.compose.ui.Modifier
+ import androidx.compose.ui.platform.LocalContext
+ import androidx.compose.ui.platform.LocalClipboardManager
++import androidx.compose.ui.platform.LocalDensity
++import androidx.compose.ui.platform.testTag
+ import androidx.compose.ui.res.painterResource
+ import androidx.compose.ui.text.style.TextOverflow
+ import androidx.compose.ui.unit.dp
+@@ -204,6 +206,7 @@
+     }
+     val entry by nav.currentBackStackEntryAsState()
+     val route = entry?.destination?.route ?: "chat"
++    val imeVisible = WindowInsets.ime.getBottom(LocalDensity.current) > 0
+     val destinations = listOf(
+         Triple("chat", Icons.Default.Chat, "Chat"),
+         Triple("workspaces", Icons.Default.Workspaces, "Workspaces"),
+@@ -254,8 +257,9 @@
+             }
+         },
+         bottomBar = {
+-            if (route != "voice") {
++            if (route != "voice" && !imeVisible) {
+                 NavigationBar(
++                    modifier = Modifier.testTag("main-bottom-navigation"),
+                     containerColor = MaterialTheme.colorScheme.surface,
+                     tonalElevation = 2.dp,
+                 ) {
+@@ -280,7 +284,7 @@
+         NavHost(
+             navController = nav,
+             startDestination = "chat",
+-            modifier = Modifier.padding(pad).fillMaxSize(),
++            modifier = Modifier.padding(pad).consumeWindowInsets(pad).fillMaxSize(),
+         ) {
+             composable("chat") { ChatScreen(vm, onOpenVoice = { nav.navigate("voice") }) }
+             composable("workspaces") { WorkspaceScreen(vm) }
+--- a/app/src/main/java/com/nexarenew/aiconsole/ui/screens/ChatScreen.kt
++++ b/app/src/main/java/com/nexarenew/aiconsole/ui/screens/ChatScreen.kt
+@@ -44,6 +44,7 @@
+ import androidx.compose.ui.Modifier
+ import androidx.compose.ui.platform.LocalContext
+ import androidx.compose.ui.platform.LocalClipboardManager
++import androidx.compose.ui.platform.LocalDensity
+ import androidx.compose.ui.platform.testTag
+ import androidx.compose.ui.semantics.Role
+ import androidx.compose.ui.semantics.contentDescription
+@@ -131,6 +132,7 @@
+     val preparingAttachments = selectedDocs.any { !it.extractionState.startsWith("ready") }
+     var input by rememberSaveable { mutableStateOf("") }
+     val context = LocalContext.current
++    val imeVisible = WindowInsets.ime.getBottom(LocalDensity.current) > 0
+     val activity = LocalActivity.current as MainActivity
+     var speakingMessageId by remember { mutableStateOf<String?>(null) }
+     var sttState by remember { mutableStateOf(VoiceState.IDLE) }
+@@ -280,12 +282,13 @@
+                 }
+             }
+         }
+-        Row(
+-            modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
+-            verticalAlignment = Alignment.CenterVertically,
+-            horizontalArrangement = Arrangement.spacedBy(8.dp),
+-        ) {
+-            Box(Modifier.weight(1f)) {
++        if (!imeVisible) {
++            Row(
++                modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
++                verticalAlignment = Alignment.CenterVertically,
++                horizontalArrangement = Arrangement.spacedBy(8.dp),
++            ) {
++                Box(Modifier.weight(1f)) {
+                 OutlinedButton(
+                     onClick = { chatHistoryExpanded = true },
+                     modifier = Modifier.fillMaxWidth().testTag("chat-history-selector"),
+@@ -314,12 +317,13 @@
+                     }
+                 }
+             }
+-            FilledIconButton(onClick = vm::newChat, modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp)) {
+-                Icon(Icons.Default.AddComment, contentDescription = "New chat")
++                FilledIconButton(onClick = vm::newChat, modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp)) {
++                    Icon(Icons.Default.AddComment, contentDescription = "New chat")
++                }
+             }
+         }
+ 
+-        if (paused) {
++        if (!imeVisible && paused) {
+             Surface(
+                 color = MaterialTheme.colorScheme.primaryContainer,
+                 contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+@@ -329,7 +333,7 @@
+                 Text("Generation paused · response text is being held", modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp), style = MaterialTheme.typography.labelMedium)
+             }
+         }
+-        if (contextKinds.isNotEmpty()) {
++        if (!imeVisible && contextKinds.isNotEmpty()) {
+             val documentKinds = contextKinds.filter { it.startsWith("document:") || it.startsWith("attachment:") }
+             val documentCount = documentKinds.map { kind ->
+                 kind.removePrefix("document:").removePrefix("attachment:").substringBeforeLast(":chunk-")
+@@ -348,7 +352,7 @@
+             )
+         }
+ 
+-        currentChat?.let { chat ->
++        if (!imeVisible) currentChat?.let { chat ->
+             val selectedInfo = modelCatalogues[chat.provider].orEmpty().firstOrNull { it.id == chat.model }
+             Surface(
+                 color = MaterialTheme.colorScheme.surfaceVariant,
+@@ -421,7 +425,7 @@
+             }
+         }
+ 
+-        if (!autoFollow && msgs.isNotEmpty()) {
++        if (!imeVisible && !autoFollow && msgs.isNotEmpty()) {
+             Row(
+                 modifier = Modifier.fillMaxWidth().padding(top = 4.dp, bottom = 2.dp),
+                 horizontalArrangement = Arrangement.Center,
+@@ -631,12 +635,14 @@
+                     pttHeld || sttState == VoiceState.LISTENING -> "Listening • release to send"
+                     else -> "Ready"
+                 }
+-                Text(
+-                    voiceStatus,
+-                    style = MaterialTheme.typography.labelSmall,
+-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+-                    modifier = Modifier.padding(horizontal = 10.dp, bottom = 3.dp).semantics { liveRegion = LiveRegionMode.Polite },
+-                )
++                if (!imeVisible) {
++                    Text(
++                        voiceStatus,
++                        style = MaterialTheme.typography.labelSmall,
++                        color = MaterialTheme.colorScheme.onSurfaceVariant,
++                        modifier = Modifier.padding(start = 10.dp, end = 10.dp, bottom = 3.dp).semantics { liveRegion = LiveRegionMode.Polite },
++                    )
++                }
+             }
+         }
+     }
+--- a/app/src/androidTest/java/com/nexarenew/aiconsole/ui/ChatInteractionInstrumentedTest.kt
++++ b/app/src/androidTest/java/com/nexarenew/aiconsole/ui/ChatInteractionInstrumentedTest.kt
+@@ -73,6 +73,8 @@
+         compose.waitUntil(10_000) { compose.onAllNodes(hasScrollAction()).fetchSemanticsNodes().isNotEmpty() }
+         val composer = compose.onNodeWithTag("chat-composer")
+         composer.assertIsDisplayed().performClick().performTextInput("Keep this long draft")
++        compose.waitUntil(5_000) { compose.onAllNodesWithTag("main-bottom-navigation").fetchSemanticsNodes().isEmpty() }
++        composer.assertIsDisplayed()
+         compose.onNodeWithTag("chat-send").assertIsEnabled().performClick()
+         composer.assertTextContains("Keep this long draft")
+         compose.onNodeWithText("Usage budget hard stop reached.", substring = true).assertIsDisplayed()
+--- a/tools/verify-ux-feature-patch.sh
++++ b/tools/verify-ux-feature-patch.sh
+@@ -30,6 +30,11 @@
+ check "Android adjustResize" "$MANIFEST" 'android:windowSoftInputMode="adjustResize"'
+ check "chat IME inset without duplicate navigation inset" "$MAIN" '.fillMaxSize()
+             .imePadding()'
++check "Scaffold padding consumed before child IME handling" "$MAIN" '.padding(pad).consumeWindowInsets(pad).fillMaxSize()'
++check "bottom navigation hides while IME is visible" "$MAIN" 'if (route != "voice" && !imeVisible)'
++check "bottom navigation has stable test tag" "$MAIN" 'testTag("main-bottom-navigation")'
++check "chat detects live IME visibility" "$MAIN" 'val imeVisible = WindowInsets.ime.getBottom(LocalDensity.current) > 0'
++check "chat history collapses while keyboard is open" "$MAIN" 'if (!imeVisible) {'
+ check_absent "no manual navigationBarsPadding remains inside Scaffold routes" "$MAIN" '.navigationBarsPadding()'
+ check "workspace chat editor list is IME-safe" "$MAIN" 'LazyColumn(Modifier.weight(1f).imePadding())'
+ check "prompt/skills/memory editor lists are IME-safe" "$MAIN" 'LazyColumn(Modifier.fillMaxSize().imePadding(),verticalArrangement=Arrangement.spacedBy(6.dp))'
