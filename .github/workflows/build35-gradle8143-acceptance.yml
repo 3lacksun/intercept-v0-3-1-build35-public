@@ -1,0 +1,211 @@
+name: Build 35 Gradle 8.14.3 Exact-Source Acceptance
+
+on:
+  push:
+    branches:
+      - gradle8143-acceptance-15092026
+
+permissions:
+  contents: read
+
+env:
+  BASELINE_SOURCE_SHA256: 699b17ac3721dfe91da048bab0568b06408ff63178f9f0d8237d971e03b38756
+  BASELINE_SOURCE_URL: https://litter.catbox.moe/o954bz.zip
+  PATCH_SHA256: 03ad7c2a62b85e528ec75b9fe72ab6ba49c226f835bc2ed317263d7e9ac437c7
+  GRADLE_OPTS: >-
+    -Dorg.gradle.daemon=false
+    -Dorg.gradle.parallel=false
+    -Dorg.gradle.workers.max=2
+    -Dkotlin.compiler.execution.strategy=in-process
+    -Dkotlin.incremental=false
+    -Dfile.encoding=UTF-8
+    -Xmx3g
+    -XX:MaxMetaspaceSize=768m
+    -XX:+UseSerialGC
+
+jobs:
+  exact-source-acceptance:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+
+    steps:
+      - name: Check out isolated acceptance branch
+        uses: actions/checkout@v4
+
+      - name: Reconstruct exact current source and enforce byte manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p src evidence
+
+          curl --fail --location --retry 3 --retry-delay 2 \
+            -o /tmp/baseline.zip "$BASELINE_SOURCE_URL"
+          echo "$BASELINE_SOURCE_SHA256  /tmp/baseline.zip" | sha256sum -c -
+          sha256sum /tmp/baseline.zip | tee evidence/baseline-source.sha256
+          unzip -t /tmp/baseline.zip | tee evidence/baseline-zip-test.txt
+          unzip -q /tmp/baseline.zip -d src
+
+          base64 -d payload/gradle8143_patch_known13.tar.xz.b64 > /tmp/current-patch.tar.xz
+          echo "$PATCH_SHA256  /tmp/current-patch.tar.xz" | sha256sum -c -
+          tar -xJf /tmp/current-patch.tar.xz -C src
+
+          cp payload/CURRENT_BUILD_INPUTS_15092026.sha256 /tmp/expected.sha256
+          : > evidence/build-input-verification.txt
+          failures=0
+          while read -r expected path; do
+            if [[ ! -f "src/$path" ]]; then
+              echo "MISSING $path" | tee -a evidence/build-input-verification.txt
+              failures=1
+              continue
+            fi
+            actual="$(sha256sum "src/$path" | awk '{print $1}')"
+            if [[ "$actual" != "$expected" ]]; then
+              echo "MISMATCH $path expected=$expected actual=$actual" | tee -a evidence/build-input-verification.txt
+              failures=1
+            fi
+          done < /tmp/expected.sha256
+
+          awk '{print $2}' /tmp/expected.sha256 | sort > /tmp/expected.paths
+          (
+            cd src
+            {
+              find app gradle -type f -print
+              printf '%s\n' gradlew gradlew.bat build.gradle.kts settings.gradle.kts gradle.properties
+            } | sort -u
+          ) > /tmp/actual.paths
+          if ! diff -u /tmp/expected.paths /tmp/actual.paths | tee evidence/build-input-path-diff.txt; then
+            failures=1
+          fi
+
+          if [[ "$failures" -ne 0 ]]; then
+            echo "EXACT-SOURCE PREFLIGHT FAILED" | tee -a evidence/build-input-verification.txt
+            exit 12
+          fi
+
+          echo "115/115 CURRENT BUILD INPUTS VERIFIED" | tee -a evidence/build-input-verification.txt
+          grep -F 'gradle-8.14.3-bin.zip' src/gradle/wrapper/gradle-wrapper.properties
+          grep -F 'distributionSha256Sum=bd71102213493060956ec229d946beee57158dbd89d0e62b91bca0fa2c5f3531' src/gradle/wrapper/gradle-wrapper.properties
+
+      - name: Set up Temurin JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          accept-android-sdk-licenses: true
+
+      - name: Install Android API 36 and Build Tools 36.0.0
+        shell: bash
+        run: |
+          set -euo pipefail
+          yes | sdkmanager --licenses >/dev/null 2>&1 || true
+          sdkmanager 'platform-tools' 'platforms;android-36' 'build-tools;36.0.0'
+          echo "sdk.dir=$ANDROID_HOME" > src/local.properties
+
+      - name: Verify Gradle 8.14.3 runtime
+        working-directory: src
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x gradlew
+          ./gradlew --no-daemon --version | tee ../evidence/gradle-version.txt
+          grep -F 'Gradle 8.14.3' ../evidence/gradle-version.txt
+          java -version 2>&1 | tee ../evidence/java-version.txt
+
+      - name: Unit tests
+        working-directory: src
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew --no-daemon testDebugUnitTest | tee ../evidence/testDebugUnitTest.log
+
+      - name: Compile debug Kotlin
+        working-directory: src
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew --no-daemon :app:compileDebugKotlin | tee ../evidence/compileDebugKotlin.log
+
+      - name: Android lint
+        working-directory: src
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew --no-daemon lintDebug | tee ../evidence/lintDebug.log
+
+      - name: Compile instrumentation APK
+        working-directory: src
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew --no-daemon :app:assembleDebugAndroidTest | tee ../evidence/assembleDebugAndroidTest.log
+
+      - name: Clean assemble debug APK
+        working-directory: src
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew --no-daemon clean assembleDebug | tee ../evidence/clean-assembleDebug.log
+          test -f app/build/outputs/apk/debug/app-debug.apk
+
+      - name: Verify APK identity, alignment, signature and digest
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK=src/app/build/outputs/apk/debug/app-debug.apk
+          BT="$ANDROID_HOME/build-tools/36.0.0"
+          "$BT/aapt" dump badging "$APK" | tee evidence/aapt-badging.txt
+          grep -F "package: name='com.nexarenew.drstonecommand' versionCode='35' versionName='0.3.1'" evidence/aapt-badging.txt
+          grep -F "sdkVersion:'26'" evidence/aapt-badging.txt
+          grep -F "targetSdkVersion:'36'" evidence/aapt-badging.txt
+          grep -F "application-label:'INTERCEPT'" evidence/aapt-badging.txt
+          "$BT/zipalign" -c -v 4 "$APK" | tee evidence/zipalign.txt
+          "$BT/apksigner" verify --verbose --print-certs "$APK" | tee evidence/apksigner.txt
+          sha256sum "$APK" | tee evidence/app-debug.apk.sha256
+          cp "$APK" evidence/INTERCEPT_V0_3_1_BUILD35_GRADLE_8_14_3_DEBUG.apk
+
+      - name: Re-verify source build inputs after build
+        if: always()
+        shell: bash
+        run: |
+          set +e
+          if [[ -d src/app ]]; then
+            failures=0
+            while read -r expected path; do
+              [[ -f "src/$path" ]] || { echo "POSTBUILD MISSING $path"; failures=1; continue; }
+              actual="$(sha256sum "src/$path" | awk '{print $1}')"
+              [[ "$actual" == "$expected" ]] || { echo "POSTBUILD MISMATCH $path"; failures=1; }
+            done < payload/CURRENT_BUILD_INPUTS_15092026.sha256
+            echo "postbuild_source_failures=$failures" | tee evidence/postbuild-source-verification.txt
+          fi
+
+      - name: Collect reports
+        if: always()
+        shell: bash
+        run: |
+          set +e
+          mkdir -p evidence/reports
+          cp -R src/app/build/reports/tests evidence/reports/unit-tests 2>/dev/null || true
+          cp src/app/build/reports/lint-results-debug.html evidence/reports/ 2>/dev/null || true
+          cp src/app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk evidence/ 2>/dev/null || true
+
+      - name: Upload verification evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: INTERCEPT_BUILD35_GRADLE8143_ACCEPTANCE_EVIDENCE
+          path: evidence/
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Upload verified APK
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: INTERCEPT_BUILD35_GRADLE8143_VERIFIED_APK
+          path: src/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 30
