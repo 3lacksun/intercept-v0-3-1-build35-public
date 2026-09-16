@@ -1,0 +1,42 @@
+name: EXEC002 Inspect Preserved Build35 Payload
+
+on:
+  push:
+    branches:
+      - exec002-baseline-recovery-16092026
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - name: Reconstruct preserved exact build input transport
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p out/exact_inputs
+          cat payload/exact_build_inputs_*.b64 | tr -d '\r\n' | base64 -d > out/exact_build_inputs.tar.xz
+          sha256sum out/exact_build_inputs.tar.xz | tee out/exact_build_inputs.sha256
+          xz -t out/exact_build_inputs.tar.xz
+          tar -tvJf out/exact_build_inputs.tar.xz | tee out/exact_build_inputs.list.txt
+          tar -xJf out/exact_build_inputs.tar.xz -C out/exact_inputs
+          find out/exact_inputs -type f -print0 | sort -z | xargs -0 sha256sum > out/exact_inputs_files.sha256
+          cp payload/CURRENT_BUILD_INPUTS_15092026.sha256 out/
+          if [ -f payload/gradle8143_patch_known13.tar.xz.b64 ]; then
+            tr -d '\r\n' < payload/gradle8143_patch_known13.tar.xz.b64 | base64 -d > out/gradle8143_patch_known13.tar.xz
+            xz -t out/gradle8143_patch_known13.tar.xz
+            tar -tvJf out/gradle8143_patch_known13.tar.xz | tee out/gradle8143_patch_known13.list.txt
+          fi
+      - name: Upload reconstructed preserved payload
+        uses: actions/upload-artifact@v4
+        with:
+          name: EXEC002_PRESERVED_BUILD35_PAYLOAD_INSPECTION
+          path: out/
+          if-no-files-found: error
+          retention-days: 30
