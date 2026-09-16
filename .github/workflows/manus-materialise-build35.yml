@@ -1,0 +1,105 @@
+name: Manus Materialise Build35
+
+on:
+  push:
+    branches: [exec002-baseline-recovery-16092026]
+    paths: ['.github/workflows/manus-materialise-build35.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  materialise:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Recover pinned complete Build35 source
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p recovery materialised
+          URL='https://litter.catbox.moe/o954bz.zip'
+          SRC='recovery/INTERCEPT_V0_3_1_BUILD35_AUTHORITATIVE_RECOVERED_COMPILE_FIXED_HANDOVER_11092026143847.zip'
+          curl --fail --location --retry 3 --retry-delay 2 -o "$SRC" "$URL"
+          echo '699b17ac3721dfe91da048bab0568b06408ff63178f9f0d8237d971e03b38756  '"$SRC" | sha256sum -c -
+          unzip -t "$SRC" | tee recovery/ZIP_TEST.txt
+          unzip -q "$SRC" -d materialised
+          sha256sum "$SRC" | tee recovery/SHA256.txt
+          find materialised -maxdepth 5 -type f | sort | head -300 | tee recovery/TREE_HEAD.txt
+          find materialised -type f \( -name gradlew -o -name settings.gradle -o -name settings.gradle.kts \) -print | tee recovery/ANDROID_ROOT_MARKERS.txt
+          test -s recovery/ANDROID_ROOT_MARKERS.txt
+      - name: Add Manus build instructions
+        shell: bash
+        run: |
+          set -euo pipefail
+          ROOT="$(dirname "$(find materialised -type f -name gradlew | head -1)")"
+          cat > "$ROOT/START_HERE_MANUS.md" <<'EOF'
+          # INTERCEPT v0.3.1 Build 35 — Manus Quick APK Build
+
+          This package contains the materialised native Android project. Do not reconstruct or replace the source.
+
+          ## Build
+          ```sh
+          chmod +x gradlew
+          ./gradlew --no-daemon assembleDebug
+          ```
+
+          Expected APK: `app/build/outputs/apk/debug/app-debug.apk`
+
+          ## Identity
+          - applicationId: `com.nexarenew.drstonecommand`
+          - versionName: `0.3.1`
+          - versionCode: `35`
+          - minSdk: `26`
+          - targetSdk: `36`
+          - label: `INTERCEPT`
+
+          ## Recovered source provenance
+          `INTERCEPT_V0_3_1_BUILD35_AUTHORITATIVE_RECOVERED_COMPILE_FIXED_HANDOVER_11092026143847.zip`
+          SHA-256: `699b17ac3721dfe91da048bab0568b06408ff63178f9f0d8237d971e03b38756`
+          EOF
+          chmod +x "$ROOT/gradlew" || true
+          printf '%s\n' "$ROOT" > recovery/PROJECT_ROOT.txt
+          (cd "$ROOT" && find . -type f -not -path './.gradle/*' -not -path './**/build/*' -print0 | sort -z | xargs -0 sha256sum) > "$ROOT/PROJECT_SHA256SUMS.txt"
+      - name: Try direct debug build
+        shell: bash
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          ROOT="$(cat recovery/PROJECT_ROOT.txt)"
+          cd "$ROOT"
+          ./gradlew --no-daemon testDebugUnitTest :app:compileDebugKotlin assembleDebug 2>&1 | tee "$GITHUB_WORKSPACE/recovery/GRADLE_BUILD.log"
+          status=${PIPESTATUS[0]}
+          echo "$status" > "$GITHUB_WORKSPACE/recovery/GRADLE_EXIT_CODE.txt"
+          if [ "$status" -eq 0 ]; then
+            mkdir -p PREBUILT_APK
+            cp app/build/outputs/apk/debug/app-debug.apk PREBUILT_APK/INTERCEPT_V0_3_1_BUILD35_DEBUG.apk
+            sha256sum PREBUILT_APK/INTERCEPT_V0_3_1_BUILD35_DEBUG.apk > PREBUILT_APK/SHA256.txt
+          fi
+          exit "$status"
+      - name: Package Manus-ready project
+        shell: bash
+        run: |
+          set -euo pipefail
+          ROOT="$(cat recovery/PROJECT_ROOT.txt)"
+          rm -rf "$ROOT/.gradle" "$ROOT/app/build" "$ROOT/build" || true
+          OUT="$GITHUB_WORKSPACE/recovery/INTERCEPT_V0_3_1_BUILD35_MANUS_QUICK_APK_BUILD_READY_16092026.zip"
+          (cd "$ROOT" && zip -qr "$OUT" .)
+          unzip -t "$OUT" | tee recovery/MANUS_ZIP_TEST.txt
+          sha256sum "$OUT" | tee recovery/MANUS_ZIP_SHA256.txt
+      - name: Upload Manus-ready Build35
+        uses: actions/upload-artifact@v4
+        with:
+          name: INTERCEPT_BUILD35_MANUS_QUICK_APK_BUILD_READY
+          path: |
+            recovery/INTERCEPT_V0_3_1_BUILD35_MANUS_QUICK_APK_BUILD_READY_16092026.zip
+            recovery/MANUS_ZIP_SHA256.txt
+            recovery/MANUS_ZIP_TEST.txt
+            recovery/SHA256.txt
+            recovery/ZIP_TEST.txt
+            recovery/GRADLE_BUILD.log
+            recovery/GRADLE_EXIT_CODE.txt
+            recovery/ANDROID_ROOT_MARKERS.txt
+          if-no-files-found: error
+          retention-days: 30
