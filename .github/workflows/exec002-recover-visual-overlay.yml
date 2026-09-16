@@ -1,0 +1,31 @@
+name: EXEC002 Recover Exact Visual Overlay
+
+on:
+  push:
+    branches: [exec002-baseline-recovery-16092026]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  recover-overlay:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Reconstruct and verify exact visual overlay
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          cat payload/visual_uiux_overlay_*.b64 | tr -d '\r\n' | base64 -d > out/INTERCEPT_B35_VISUAL_UIUX_OVERLAY_15092026.tar.xz
+          echo 'ec8ad6733969800408bf6667c0484364244a6222dc7c904eafe6f84e1cc5f576  out/INTERCEPT_B35_VISUAL_UIUX_OVERLAY_15092026.tar.xz' | sha256sum -c -
+          xz -t out/INTERCEPT_B35_VISUAL_UIUX_OVERLAY_15092026.tar.xz
+          tar -tvJf out/INTERCEPT_B35_VISUAL_UIUX_OVERLAY_15092026.tar.xz | tee out/overlay-contents.txt
+          sha256sum out/INTERCEPT_B35_VISUAL_UIUX_OVERLAY_15092026.tar.xz > out/overlay.sha256
+      - uses: actions/upload-artifact@v4
+        with:
+          name: EXEC002_EXACT_VISUAL_OVERLAY
+          path: out/
+          if-no-files-found: error
+          retention-days: 30
