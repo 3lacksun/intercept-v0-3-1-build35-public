@@ -24,12 +24,12 @@ jobs:
         -XX:MaxMetaspaceSize=768m
         -XX:+UseSerialGC
     steps:
-      - name: Download and verify pinned P0 source
+      - name: Download and verify recovered exact P0 source
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p src out
-          curl --fail --location --retry 3 --retry-delay 2 'https://drive.usercontent.google.com/download?id=1v_tgUDrMiYzMRV5xZY9NuOg-8lunCxHK&export=download&confirm=t' -o /tmp/p0.zip
+          curl --fail --location --retry 3 --retry-delay 2 'https://drive.usercontent.google.com/download?id=1ty29GKV8gxcwyrGjWlMOhRSP_l_eOhE3&export=download&confirm=t' -o /tmp/p0.zip
           echo '35b7d52e212f5aa27f1e2edb8558b8bdd17b1df2463e9439ae75cfb5812d5643  /tmp/p0.zip' | sha256sum -c -
           unzip -t /tmp/p0.zip > out/p0-zip-test.txt
           unzip -q /tmp/p0.zip -d src
