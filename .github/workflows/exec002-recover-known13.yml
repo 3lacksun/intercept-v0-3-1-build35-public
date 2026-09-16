@@ -23,7 +23,7 @@ jobs:
         -Xmx3g
         -XX:MaxMetaspaceSize=768m
         -XX:+UseSerialGC
-      P0_URL: "https://sdmntprnortheu.oaiusercontent.com/files/00000000-c268-81f4-ba8f-12ea58b2d2bd/raw?se=2026-09-16T06%3A42%3A28Z&sp=r&sv=2026-02-06&sr=b&scid=e360cd58-623d-58cc-9f89-1d7cc077395f&skoid=3804227d-1b52-417d-afd9-9ffbb50fa53e&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-09-16T06%3A15%3A55Z&ske=2026-09-17T06%3A15%3A55Z&sks=b&skv=2026-02-06&sig=mSNEnhAu7yqlhbhqsmA0Kr6p7U/7y3KbWJ9oI4AKcgI%3D"
+      P0_URL: "https://sdmntprnortheu.oaiusercontent.com/files/00000000-7ae4-81f4-b9a9-c3297e8550dd/raw?se=2026-09-16T06%3A46%3A49Z&sp=r&sv=2026-02-06&sr=b&scid=357ba362-a9f0-5594-b500-a9adeda81098&skoid=3804227d-1b52-417d-afd9-9ffbb50fa53e&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-09-16T05%3A20%3A07Z&ske=2026-09-17T05%3A20%3A07Z&sks=b&skv=2026-02-06&sig=GIh6UhVTHhOMfiGCI9bmTrHSJtYsxl8m4KWuj1WVnjM%3D"
     steps:
       - name: Download and verify recovered exact P0 source
         shell: bash
@@ -36,6 +36,23 @@ jobs:
           unzip -q /tmp/p0.zip -d src
           chmod +x src/gradlew
           sha256sum /tmp/p0.zip > out/p0-source.sha256
+          echo 'c13c7a1ffcdc2ee443c4cfc321faeb38a6c9f3e0d6351a1e3828be942541a13d  src/app/src/main/java/com/nexarenew/aiconsole/ui/screens/ChatScreen.kt' | sha256sum -c -
+
+      - name: Apply documented compile-only ChatScreen fix
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('src/app/src/main/java/com/nexarenew/aiconsole/ui/screens/ChatScreen.kt')
+          s=p.read_text()
+          old='Modifier.padding(horizontal = 10.dp, bottom = 3.dp)'
+          new='Modifier.padding(start = 10.dp, end = 10.dp, bottom = 3.dp)'
+          assert s.count(old)==1, s.count(old)
+          p.write_text(s.replace(old,new,1))
+          PY
+          sha256sum src/app/src/main/java/com/nexarenew/aiconsole/ui/screens/ChatScreen.kt | tee out/p0-chat-compilefix.sha256
+          printf '%s\n' 'Oracle-only mutation: d313ca3 compile fix; governed P0 ZIP remains untouched.' > out/oracle-mutation.txt
 
       - name: Set up JDK 21
         uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3
