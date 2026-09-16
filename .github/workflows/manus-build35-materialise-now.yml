@@ -1,0 +1,127 @@
+name: INTERCEPT Build35 Materialise for Manus
+
+on:
+  push:
+    branches: [exec002-baseline-recovery-16092026]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  materialise:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fetch exact private APEX carrier chunks
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p carrier out/source
+          curl --fail --location --retry 3 'https://raw.githubusercontent.com/3lacksun/intercept-v0-3-1-build32/intercept-build35-apex/apex_ci/part00.b64?token=CMNAELUQEF6KOUF3JFMIYVDKVJRRLAA' -o carrier/part00.b64
+          curl --fail --location --retry 3 'https://raw.githubusercontent.com/3lacksun/intercept-v0-3-1-build32/intercept-build35-apex/apex_ci/part01.b64?token=CMNAELRIK6YPL3JJUZIOTIDKVJRRLAA' -o carrier/part01.b64
+          curl --fail --location --retry 3 'https://raw.githubusercontent.com/3lacksun/intercept-v0-3-1-build32/intercept-build35-apex/apex_ci/part02.b64?token=CMNAELS7DZ7QO4BKVWPRSTLKVJRRLAA' -o carrier/part02.b64
+          curl --fail --location --retry 3 'https://raw.githubusercontent.com/3lacksun/intercept-v0-3-1-build32/intercept-build35-apex/apex_ci/part03.b64?token=CMNAELQUFYW4O7EXZ4Y5MD3KVJRRLAA' -o carrier/part03.b64
+          test "$(git hash-object carrier/part00.b64)" = '326e0fda99edf856d9a8a33aab987aadecda07f7'
+          test "$(git hash-object carrier/part01.b64)" = '76600213ea7525b3434a3420cb6783971cec292d'
+          test "$(git hash-object carrier/part02.b64)" = 'c5523462f83d8032fd792d720ff896f769d55815'
+          test "$(git hash-object carrier/part03.b64)" = 'a14360ae307c3e170418dbd119a0f2bd2c8e101c'
+          cat carrier/part00.b64 carrier/part01.b64 carrier/part02.b64 carrier/part03.b64 | tr -d '\r\n\t ' | base64 -d > out/apex-source.zip
+          sha256sum out/apex-source.zip | tee out/APEX_SOURCE_ZIP_SHA256.txt
+          unzip -t out/apex-source.zip | tee out/APEX_SOURCE_ZIP_TEST.txt
+          unzip -q out/apex-source.zip -d out/source
+          find out/source -type f -print0 | sort -z | xargs -0 sha256sum > out/APEX_SOURCE_FILE_SHA256SUMS.txt
+
+      - name: Identify project and write Manus instructions
+        shell: bash
+        run: |
+          set -euo pipefail
+          PROJECT_ROOT="$GITHUB_WORKSPACE/out/source"
+          if [ ! -f "$PROJECT_ROOT/settings.gradle.kts" ] && [ ! -f "$PROJECT_ROOT/settings.gradle" ]; then
+            CANDIDATE="$(find "$PROJECT_ROOT" -type f \( -name settings.gradle.kts -o -name settings.gradle \) -printf '%h\n' | head -1)"
+            test -n "$CANDIDATE"
+            PROJECT_ROOT="$CANDIDATE"
+          fi
+          echo "PROJECT_ROOT=$PROJECT_ROOT" >> "$GITHUB_ENV"
+          cat > "$PROJECT_ROOT/START_HERE_MANUS.md" <<'EOF'
+          # INTERCEPT v0.3.1 Build 35 — Manus Quick APK Build
+
+          This is the materialised Android project recovered from the verified Build 35 APEX carrier. Do not reconstruct or fetch another baseline.
+
+          ## Build
+          ```sh
+          chmod +x gradlew
+          ./gradlew --no-daemon assembleDebug
+          ```
+
+          Expected APK:
+          `app/build/outputs/apk/debug/app-debug.apk`
+
+          Identity:
+          - applicationId: `com.nexarenew.drstonecommand`
+          - versionName: `0.3.1`
+          - versionCode: `35`
+          - minSdk: `26`
+          - targetSdk: `36`
+          - label: `INTERCEPT`
+
+          Preserve this Build 35 baseline. Do not redesign, rebase, or replace it.
+          EOF
+          grep -R --line-number -E 'com\.nexarenew\.drstonecommand|versionCode[ =]+35|versionName[ =]+"0\.3\.1"|targetSdk[ =]+36|minSdk[ =]+26' "$PROJECT_ROOT" | head -100 | tee out/IDENTITY_EVIDENCE.txt || true
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Gradle 8.14.3
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.14.3'
+
+      - name: Ensure Gradle wrapper exists
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$PROJECT_ROOT"
+          if [ ! -f gradlew ] || [ ! -f gradle/wrapper/gradle-wrapper.jar ]; then
+            gradle wrapper --gradle-version 8.14.3 --distribution-type bin
+          fi
+          chmod +x gradlew
+          ./gradlew --version | tee "$GITHUB_WORKSPACE/out/GRADLE_WRAPPER_VERSION.txt"
+
+      - name: Build debug APK
+        id: build
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -o pipefail
+          cd "$PROJECT_ROOT"
+          ./gradlew --no-daemon --stacktrace :app:assembleDebug 2>&1 | tee "$GITHUB_WORKSPACE/out/ASSEMBLE_DEBUG.log"
+          rc=${PIPESTATUS[0]}
+          if [ "$rc" -eq 0 ] && [ -s app/build/outputs/apk/debug/app-debug.apk ]; then
+            mkdir -p "$GITHUB_WORKSPACE/out/PREBUILT_APK"
+            cp app/build/outputs/apk/debug/app-debug.apk "$GITHUB_WORKSPACE/out/PREBUILT_APK/INTERCEPT_V0_3_1_BUILD35_DEBUG.apk"
+            sha256sum "$GITHUB_WORKSPACE/out/PREBUILT_APK/INTERCEPT_V0_3_1_BUILD35_DEBUG.apk" | tee "$GITHUB_WORKSPACE/out/APK_SHA256.txt"
+          fi
+          exit "$rc"
+
+      - name: Package materialised project
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$PROJECT_ROOT"
+          zip -qr "$GITHUB_WORKSPACE/out/INTERCEPT_V0_3_1_BUILD35_MANUS_PROJECT.zip" . -x '.gradle/*' 'app/build/*' 'build/*'
+          unzip -t "$GITHUB_WORKSPACE/out/INTERCEPT_V0_3_1_BUILD35_MANUS_PROJECT.zip" | tail -1
+          sha256sum "$GITHUB_WORKSPACE/out/INTERCEPT_V0_3_1_BUILD35_MANUS_PROJECT.zip" | tee "$GITHUB_WORKSPACE/out/MANUS_PROJECT_ZIP_SHA256.txt"
+
+      - name: Upload complete recovery and build output
+        uses: actions/upload-artifact@v4
+        with:
+          name: INTERCEPT_V0_3_1_BUILD35_MANUS_MATERIALISED
+          path: out/
+          if-no-files-found: error
+          retention-days: 30
