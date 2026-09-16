@@ -1,0 +1,63 @@
+name: EXEC002 Decompile IME Oracle
+
+on:
+  push:
+    branches:
+      - exec002-known13-recovery-16092026
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  decompile-oracle:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Download retained exact IME APK artifact
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/apk_artifact
+          gh api /repos/${{ github.repository }}/actions/artifacts/10403490665/zip > /tmp/ime-apk-artifact.zip
+          unzip -q /tmp/ime-apk-artifact.zip -d /tmp/apk_artifact
+          APK=$(find /tmp/apk_artifact -type f -name '*.apk' | head -1)
+          test -n "$APK"
+          echo "APK=$APK" >> "$GITHUB_ENV"
+          sha256sum "$APK" | tee /tmp/apk.sha256
+
+      - name: Install JADX CLI
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --location --retry 3 -o /tmp/jadx.zip https://github.com/skylot/jadx/releases/download/v1.5.6/jadx-1.5.6.zip
+          unzip -q /tmp/jadx.zip -d /tmp/jadx
+          /tmp/jadx/bin/jadx --version
+
+      - name: Decompile exact APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/jadx-out out
+          /tmp/jadx/bin/jadx --no-res --deobf -j 4 -d /tmp/jadx-out "$APK" > out/jadx.log 2>&1 || true
+          cp /tmp/apk.sha256 out/
+          find /tmp/jadx-out/sources/com/nexarenew/aiconsole -type f \( \
+            -name '*AppViewModel*' -o -name '*ChatScreen*' -o -name '*DocumentsScreen*' -o -name '*SettingsScreen*' -o -name '*WorkspaceScreen*' \
+          \) -print | sort > out/selected-files.txt
+          while IFS= read -r f; do
+            rel=${f#/tmp/jadx-out/}
+            mkdir -p "out/$(dirname "$rel")"
+            cp "$f" "out/$rel"
+          done < out/selected-files.txt
+          grep -RniE 'retry|outbox|dictat|speech|voice|memory|document|workspace|provider|model|send|cancel|attachment|selectedSkill|legacy|relink' out/sources/com/nexarenew/aiconsole 2>/dev/null > out/selected-grep.txt || true
+          find out -type f -printf '%P\t%s bytes\n' | sort > out/inventory.txt
+
+      - name: Upload decompilation oracle
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: EXEC002_IME_DECOMPILE_ORACLE
+          path: out/
+          if-no-files-found: error
+          retention-days: 30
