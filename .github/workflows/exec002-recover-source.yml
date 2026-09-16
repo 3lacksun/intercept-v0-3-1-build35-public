@@ -1,0 +1,30 @@
+name: EXEC002 Recover Earlier Build35 Source
+
+on:
+  push:
+    branches: [exec002-baseline-recovery-16092026]
+
+permissions:
+  contents: read
+
+jobs:
+  recover-source:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch and verify recorded source transport
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p recovery
+          curl -fL --retry 3 --retry-delay 2 -o recovery/INTERCEPT_BUILD35_RECORDED_SOURCE_699b17ac.zip https://litter.catbox.moe/o954bz.zip
+          echo '699b17ac3721dfe91da048bab0568b06408ff63178f9f0d8237d971e03b38756  recovery/INTERCEPT_BUILD35_RECORDED_SOURCE_699b17ac.zip' | sha256sum -c -
+          unzip -t recovery/INTERCEPT_BUILD35_RECORDED_SOURCE_699b17ac.zip | tee recovery/unzip-test.txt
+      - name: Upload verified recovered source
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: EXEC002_BUILD35_RECORDED_SOURCE_699b17ac
+          path: recovery/
+          if-no-files-found: warn
+          retention-days: 7
