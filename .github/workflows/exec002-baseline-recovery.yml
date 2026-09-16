@@ -17,8 +17,10 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p recovery
-          cat payload/exact_build_inputs_*.b64 | base64 -d > recovery/exact_build_inputs.xz
-          cat payload/visual_uiux_overlay_*.b64 | base64 -d > recovery/visual_uiux_overlay.tar.xz
+          : > recovery/exact_build_inputs.xz
+          for f in payload/exact_build_inputs_*.b64; do base64 -d "$f" >> recovery/exact_build_inputs.xz; done
+          : > recovery/visual_uiux_overlay.tar.xz
+          for f in payload/visual_uiux_overlay_*.b64; do base64 -d "$f" >> recovery/visual_uiux_overlay.tar.xz; done
           sha256sum recovery/* | tee recovery/SHA256SUMS.txt
           file recovery/* | tee recovery/FILE_TYPES.txt
           xz -t recovery/exact_build_inputs.xz
@@ -26,6 +28,7 @@ jobs:
           (tar -tJf recovery/exact_build_inputs.xz || true) > recovery/exact_build_inputs.list.txt 2>&1
           tar -tJf recovery/visual_uiux_overlay.tar.xz > recovery/visual_uiux_overlay.list.txt
       - name: Upload recovered baseline transport
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: EXEC002_BUILD35_BASELINE_RECOVERY
