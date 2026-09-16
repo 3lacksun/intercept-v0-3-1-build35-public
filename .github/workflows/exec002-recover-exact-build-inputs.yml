@@ -1,0 +1,61 @@
+name: EXEC002 Recover Exact Build Inputs Chunks
+
+on:
+  push:
+    branches:
+      - exec002-known13-recovery-16092026
+
+permissions:
+  contents: read
+
+jobs:
+  recover-exact-inputs:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout full public history
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+
+      - name: Reconstruct split exact build-input payload
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p out/extracted
+          git show d79e91014c8167ecef45072c4514cb2c8fb7d42f:payload/exact_build_inputs_00.b64 > out/exact_build_inputs_00.b64
+          git show 072f25a6e23173b493d19dca31a8e56ff485dffd:payload/exact_build_inputs_01.b64 > out/exact_build_inputs_01.b64
+          wc -c out/exact_build_inputs_00.b64 out/exact_build_inputs_01.b64 | tee out/chunk-sizes.txt
+          printf 'chunk00_tail=' >> out/chunk-tails.txt; tail -c 96 out/exact_build_inputs_00.b64 >> out/chunk-tails.txt; printf '\nchunk01_tail=' >> out/chunk-tails.txt; tail -c 96 out/exact_build_inputs_01.b64 >> out/chunk-tails.txt; printf '\n' >> out/chunk-tails.txt
+          if grep -Fq '[...trimmed for brevity...]' out/exact_build_inputs_00.b64 out/exact_build_inputs_01.b64; then echo 'TRUNCATION_MARKER_PRESENT' | tee out/result.txt; exit 31; fi
+          cat out/exact_build_inputs_00.b64 out/exact_build_inputs_01.b64 | tr -d '\r\n' | base64 -d > out/exact_build_inputs.tar.xz
+          xz -t out/exact_build_inputs.tar.xz
+          tar -tvJf out/exact_build_inputs.tar.xz | tee out/contents.txt
+          tar -xJf out/exact_build_inputs.tar.xz -C out/extracted
+          sha256sum out/exact_build_inputs.tar.xz out/exact_build_inputs_00.b64 out/exact_build_inputs_01.b64 | tee out/hashes.txt
+          cat > out/target-six.sha256 <<'EOF'
+          6b667c33d75e93973fcbec87b78d2532cbab75d3fdd5de12e690f31c9094b773  app/src/main/java/com/nexarenew/aiconsole/MainActivity.kt
+          1b0adb079858f0e10839ea0f34405a2a4bfd0f43ee0a029262cb0fd1b238003d  app/src/main/java/com/nexarenew/aiconsole/ui/AppViewModel.kt
+          fc3d22a61874a32e84d73e927908e239f9352e5204f3cae0c34c5cba7b0e32fa  app/src/main/java/com/nexarenew/aiconsole/ui/screens/ChatScreen.kt
+          511842aee8bccde755f888e9234850403fdb158b632f50896b94d6f9bed63d5a  app/src/main/java/com/nexarenew/aiconsole/ui/screens/DocumentsScreen.kt
+          03b2d9d33b602a60d28ce9ab2f2970c48d9feca69f79f898caf2575616b6d417  app/src/main/java/com/nexarenew/aiconsole/ui/screens/SettingsScreen.kt
+          b96653d49d7da1b0ea9787bf6bd89713f280df8bbc62ed8cc3776b0fe5eae881  app/src/main/java/com/nexarenew/aiconsole/ui/screens/WorkspaceScreen.kt
+          EOF
+          failures=0
+          while read -r expected path; do
+            if [[ ! -f "out/extracted/$path" ]]; then echo "MISSING $path" | tee -a out/target-six-verification.txt; failures=1; continue; fi
+            actual=$(sha256sum "out/extracted/$path" | awk '{print $1}')
+            echo "$actual  $path" | tee -a out/extracted-file-hashes.txt
+            [[ "$actual" == "$expected" ]] || { echo "MISMATCH $path expected=$expected actual=$actual" | tee -a out/target-six-verification.txt; failures=1; }
+          done < out/target-six.sha256
+          echo "failures=$failures" | tee -a out/target-six-verification.txt
+          exit "$failures"
+
+      - name: Upload recovered exact build inputs
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: EXEC002_EXACT_BUILD_INPUTS_RECOVERY
+          path: out/
+          if-no-files-found: warn
+          retention-days: 30
