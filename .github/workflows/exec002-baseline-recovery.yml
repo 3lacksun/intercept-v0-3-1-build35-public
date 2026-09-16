@@ -17,8 +17,18 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p recovery
-          cat payload/exact_build_inputs_*.b64 | tr -d '\r\n\t ' | base64 -d > recovery/exact_build_inputs.tar.xz
-          cat payload/visual_uiux_overlay_*.b64 | tr -d '\r\n\t ' | base64 -d > recovery/visual_uiux_overlay.tar.xz
+          python3 - <<'PY'
+          import base64, glob, pathlib
+          def recover(pattern, out):
+              parts=[]
+              for p in sorted(glob.glob(pattern)):
+                  s=''.join(pathlib.Path(p).read_text().split())
+                  s += '=' * ((4 - len(s) % 4) % 4)
+                  parts.append(base64.b64decode(s, validate=False))
+              pathlib.Path(out).write_bytes(b''.join(parts))
+          recover('payload/exact_build_inputs_*.b64', 'recovery/exact_build_inputs.tar.xz')
+          recover('payload/visual_uiux_overlay_*.b64', 'recovery/visual_uiux_overlay.tar.xz')
+          PY
           sha256sum recovery/*.tar.xz | tee recovery/SHA256SUMS.txt
           file recovery/*.tar.xz | tee recovery/FILE_TYPES.txt
           xz -t recovery/exact_build_inputs.tar.xz
