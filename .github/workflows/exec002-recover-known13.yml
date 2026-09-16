@@ -23,13 +23,14 @@ jobs:
         -Xmx3g
         -XX:MaxMetaspaceSize=768m
         -XX:+UseSerialGC
+      P0_URL: "https://sdmntprnortheu.oaiusercontent.com/files/00000000-c268-81f4-ba8f-12ea58b2d2bd/raw?se=2026-09-16T06%3A42%3A28Z&sp=r&sv=2026-02-06&sr=b&scid=e360cd58-623d-58cc-9f89-1d7cc077395f&skoid=3804227d-1b52-417d-afd9-9ffbb50fa53e&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-09-16T06%3A15%3A55Z&ske=2026-09-17T06%3A15%3A55Z&sks=b&skv=2026-02-06&sig=mSNEnhAu7yqlhbhqsmA0Kr6p7U/7y3KbWJ9oI4AKcgI%3D"
     steps:
       - name: Download and verify recovered exact P0 source
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p src out
-          curl --fail --location --retry 3 --retry-delay 2 'https://drive.usercontent.google.com/download?id=1ty29GKV8gxcwyrGjWlMOhRSP_l_eOhE3&export=download&confirm=t' -o /tmp/p0.zip
+          curl --fail --location --retry 3 --retry-delay 2 "$P0_URL" -o /tmp/p0.zip
           echo '35b7d52e212f5aa27f1e2edb8558b8bdd17b1df2463e9439ae75cfb5812d5643  /tmp/p0.zip' | sha256sum -c -
           unzip -t /tmp/p0.zip > out/p0-zip-test.txt
           unzip -q /tmp/p0.zip -d src
