@@ -28,7 +28,10 @@ jobs:
           test "$(git hash-object carrier/part01.b64)" = '76600213ea7525b3434a3420cb6783971cec292d'
           test "$(git hash-object carrier/part02.b64)" = 'c5523462f83d8032fd792d720ff896f769d55815'
           test "$(git hash-object carrier/part03.b64)" = 'a14360ae307c3e170418dbd119a0f2bd2c8e101c'
-          cat carrier/part00.b64 carrier/part01.b64 carrier/part02.b64 carrier/part03.b64 | tr -d '\r\n\t ' | base64 -d > out/apex-source.zip
+          : > out/apex-source.zip
+          for f in carrier/part00.b64 carrier/part01.b64 carrier/part02.b64 carrier/part03.b64; do
+            tr -d '\r\n\t ' < "$f" | base64 -d >> out/apex-source.zip
+          done
           sha256sum out/apex-source.zip | tee out/APEX_SOURCE_ZIP_SHA256.txt
           unzip -t out/apex-source.zip | tee out/APEX_SOURCE_ZIP_TEST.txt
           unzip -q out/apex-source.zip -d out/source
@@ -110,15 +113,19 @@ jobs:
           exit "$rc"
 
       - name: Package materialised project
+        if: always()
         shell: bash
         run: |
           set -euo pipefail
-          cd "$PROJECT_ROOT"
+          ROOT="${PROJECT_ROOT:-$GITHUB_WORKSPACE/out/source}"
+          test -d "$ROOT"
+          cd "$ROOT"
           zip -qr "$GITHUB_WORKSPACE/out/INTERCEPT_V0_3_1_BUILD35_MANUS_PROJECT.zip" . -x '.gradle/*' 'app/build/*' 'build/*'
           unzip -t "$GITHUB_WORKSPACE/out/INTERCEPT_V0_3_1_BUILD35_MANUS_PROJECT.zip" | tail -1
           sha256sum "$GITHUB_WORKSPACE/out/INTERCEPT_V0_3_1_BUILD35_MANUS_PROJECT.zip" | tee "$GITHUB_WORKSPACE/out/MANUS_PROJECT_ZIP_SHA256.txt"
 
       - name: Upload complete recovery and build output
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: INTERCEPT_V0_3_1_BUILD35_MANUS_MATERIALISED
