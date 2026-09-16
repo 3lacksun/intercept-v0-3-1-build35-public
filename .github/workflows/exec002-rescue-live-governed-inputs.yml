@@ -1,0 +1,39 @@
+name: EXEC002 Rescue Live Governed Inputs
+
+on:
+  push:
+    branches:
+      - exec002-known13-recovery-16092026
+
+permissions:
+  contents: read
+
+jobs:
+  rescue-governed-inputs:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Download and hash-gate exact governed source and overlay
+        shell: bash
+        env:
+          SOURCE_URL: "https://sdmntprnortheu.oaiusercontent.com/files/00000000-7428-81f4-bf5e-178d7b14b4a9/raw?se=2026-09-15T14%3A15%3A50Z&sp=r&sv=2026-02-06&sr=b&scid=bdd9212e-b796-500e-825d-98c2da01d62d&skoid=3804227d-1b52-417d-afd9-9ffbb50fa53e&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-09-15T07%3A52%3A23Z&ske=2026-09-16T07%3A52%3A23Z&sks=b&skv=2026-02-06&sig=GXa6LEpch2UmsIt7w%2B%2BMZXY7163ymURhVUCBCE5gphg%3D"
+          OVERLAY_URL: "https://sdmntpreastus.oaiusercontent.com/files/00000000-563c-81f9-925c-991235054a7c/raw?se=2026-09-15T17%3A46%3A41Z&sp=r&sv=2026-02-06&sr=b&scid=3d31f7e5-2821-5ae5-9f56-80162a0d5ad0&skoid=3804227d-1b52-417d-afd9-9ffbb50fa53e&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-09-15T07%3A26%3A44Z&ske=2026-09-16T07%3A26%3A44Z&sks=b&skv=2026-02-06&sig=oqrUpmEbIcQMyN465RkJrU2b5G1AI0%2BHISEuGQoRS0k%3D"
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          curl --fail --location --retry 3 --retry-delay 1 -o out/INTERCEPT_V0_3_1_BUILD35_EXEC002_PHASE0_PHASE1_SOURCE_VERIFIED_ANDROID_GATE_OPEN_15092026123600.zip "$SOURCE_URL"
+          echo '4637da3c223a802b80a4d7866d1b822ca4ad769b4e7dfc7dae2daa22c1df1349  out/INTERCEPT_V0_3_1_BUILD35_EXEC002_PHASE0_PHASE1_SOURCE_VERIFIED_ANDROID_GATE_OPEN_15092026123600.zip' | sha256sum -c -
+          unzip -t out/INTERCEPT_V0_3_1_BUILD35_EXEC002_PHASE0_PHASE1_SOURCE_VERIFIED_ANDROID_GATE_OPEN_15092026123600.zip > out/source-zip-test.txt
+          curl --fail --location --retry 3 --retry-delay 1 -o out/INTERCEPT_B35_VISUAL_UIUX_OVERLAY_15092026.tar.xz "$OVERLAY_URL"
+          echo 'ec8ad6733969800408bf6667c0484364244a6222dc7c904eafe6f84e1cc5f576  out/INTERCEPT_B35_VISUAL_UIUX_OVERLAY_15092026.tar.xz' | sha256sum -c -
+          xz -t out/INTERCEPT_B35_VISUAL_UIUX_OVERLAY_15092026.tar.xz
+          tar -tJf out/INTERCEPT_B35_VISUAL_UIUX_OVERLAY_15092026.tar.xz > out/overlay-contents.txt
+          sha256sum out/INTERCEPT_V0_3_1_BUILD35_EXEC002_PHASE0_PHASE1_SOURCE_VERIFIED_ANDROID_GATE_OPEN_15092026123600.zip out/INTERCEPT_B35_VISUAL_UIUX_OVERLAY_15092026.tar.xz > out/SHA256SUMS.txt
+
+      - name: Upload exact governed inputs
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: EXEC002_EXACT_GOVERNED_INPUTS_15092026
+          path: out/
+          if-no-files-found: error
+          retention-days: 30
