@@ -1,0 +1,48 @@
+name: Manus Recover APEX Fixed
+
+on:
+  push:
+    branches: [exec002-baseline-recovery-16092026]
+    paths: ['.github/workflows/manus-recover-apex-fixed.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  recover:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Recover complete APEX carrier correctly
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p out/source parts decoded
+          SRC=.github/workflows/exec002-transfer-private-apex.yml
+          mapfile -t URLS < <(grep -oE "https://raw\.githubusercontent\.com/[^']+" "$SRC")
+          test "${#URLS[@]}" -eq 4
+          for i in 0 1 2 3; do
+            printf -v n '%02d' "$i"
+            curl --fail --location --retry 3 "${URLS[$i]}" -o "parts/part${n}.b64"
+          done
+          test "$(git hash-object parts/part00.b64)" = '326e0fda99edf856d9a8a33aab987aadecda07f7'
+          test "$(git hash-object parts/part01.b64)" = '76600213ea7525b3434a3420cb6783971cec292d'
+          test "$(git hash-object parts/part02.b64)" = 'c5523462f83d8032fd792d720ff896f769d55815'
+          test "$(git hash-object parts/part03.b64)" = 'a14360ae307c3e170418dbd119a0f2bd2c8e101c'
+          for f in parts/part00.b64 parts/part01.b64 parts/part02.b64 parts/part03.b64; do
+            b="decoded/$(basename "$f" .b64).bin"
+            tr -d '\r\n' < "$f" | base64 -d > "$b"
+          done
+          cat decoded/part00.bin decoded/part01.bin decoded/part02.bin decoded/part03.bin > out/apex-source.zip
+          sha256sum out/apex-source.zip | tee out/APEX_SOURCE_ZIP_SHA256.txt
+          unzip -t out/apex-source.zip | tee out/APEX_SOURCE_ZIP_TEST.txt
+          unzip -q out/apex-source.zip -d out/source
+          find out/source -type f -print0 | sort -z | xargs -0 sha256sum > out/APEX_SOURCE_FILE_SHA256SUMS.txt
+      - name: Upload complete recovered source
+        uses: actions/upload-artifact@v4
+        with:
+          name: MANUS_RECOVERED_BUILD35_SOURCE
+          path: out/
+          if-no-files-found: error
+          retention-days: 30
