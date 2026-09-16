@@ -1,0 +1,40 @@
+name: EXEC002 Export Build35 Reconstruction Payloads
+
+on:
+  push:
+    branches: [exec002-baseline-recovery-16092026]
+
+permissions:
+  contents: read
+
+jobs:
+  export:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Export committed reconstruction payloads unchanged
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p recovery
+          cp payload/gradle8143_patch_known13.tar.xz.b64 recovery/
+          cp payload/INTERCEPT_BUILD35_IME_COMPOSER_FIX.patch recovery/
+          cp payload/CURRENT_BUILD_INPUTS_15092026.sha256 recovery/
+          sha256sum recovery/* | tee recovery/TRANSPORT_SHA256SUMS.txt
+          grep -n -E '\[\.\.\.|truncated|trimmed for brevity' recovery/* || true
+      - name: Decode and verify current-source patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          base64 -d recovery/gradle8143_patch_known13.tar.xz.b64 > recovery/gradle8143_patch_known13.tar.xz
+          echo '03ad7c2a62b85e528ec75b9fe72ab6ba49c226f835bc2ed317263d7e9ac437c7  recovery/gradle8143_patch_known13.tar.xz' | sha256sum -c - | tee recovery/PATCH_VERIFY.txt
+          xz -t recovery/gradle8143_patch_known13.tar.xz
+          tar -tJf recovery/gradle8143_patch_known13.tar.xz | tee recovery/PATCH_CONTENTS.txt
+      - name: Upload reconstruction evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: EXEC002_BUILD35_RECONSTRUCTION_PAYLOADS
+          path: recovery/
+          if-no-files-found: error
+          retention-days: 7
