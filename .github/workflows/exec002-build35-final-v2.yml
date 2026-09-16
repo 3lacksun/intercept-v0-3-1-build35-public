@@ -1,0 +1,143 @@
+name: EXEC002 Build35 Final v2
+
+on:
+  push:
+    branches:
+      - exec002-build35-final-16092026
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  AUTHORITATIVE_SOURCE_SHA256: 4637da3c223a802b80a4d7866d1b822ca4ad769b4e7dfc7dae2daa22c1df1349
+  VISUAL_OVERLAY_SHA256: ec8ad6733969800408bf6667c0484364244a6222dc7c904eafe6f84e1cc5f576
+  REMEDIATION_PATCH_SHA256: 69f94bd4a59552df4887a3590361bbe96f28565d8991227b98d9de0c938d0103
+  GRADLE_OPTS: >-
+    -Dorg.gradle.daemon=false
+    -Dorg.gradle.parallel=false
+    -Dorg.gradle.workers.max=2
+    -Dkotlin.compiler.execution.strategy=in-process
+    -Dkotlin.incremental=false
+    -Dfile.encoding=UTF-8
+    -Xmx3g
+    -XX:MaxMetaspaceSize=768m
+    -XX:+UseSerialGC
+
+jobs:
+  verify-build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - name: Reconstruct exact governed source
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p src evidence
+          AUTHORITATIVE_SOURCE_URL="$(cat payload/exec002_source_url.tmp)"
+          VISUAL_OVERLAY_URL="$(cat payload/exec002_overlay_url.tmp)"
+          curl --fail --location --retry 3 --retry-delay 2 -o /tmp/authoritative.zip "$AUTHORITATIVE_SOURCE_URL"
+          echo "$AUTHORITATIVE_SOURCE_SHA256  /tmp/authoritative.zip" | sha256sum -c -
+          unzip -t /tmp/authoritative.zip > evidence/authoritative-zip-test.txt
+          unzip -q /tmp/authoritative.zip -d src
+          cat > src/gradle/wrapper/gradle-wrapper.properties <<'WRAPPER'
+          distributionBase=GRADLE_USER_HOME
+          distributionPath=wrapper/dists
+          distributionSha256Sum=bd71102213493060956ec229d946beee57158dbd89d0e62b91bca0fa2c5f3531
+          distributionUrl=https\://services.gradle.org/distributions/gradle-8.14.3-bin.zip
+          networkTimeout=10000
+          validateDistributionUrl=true
+          zipStoreBase=GRADLE_USER_HOME
+          zipStorePath=wrapper/dists
+          WRAPPER
+          curl --fail --location --retry 3 --retry-delay 2 -o /tmp/overlay.tar.xz "$VISUAL_OVERLAY_URL"
+          echo "$VISUAL_OVERLAY_SHA256  /tmp/overlay.tar.xz" | sha256sum -c -
+          tar -xJf /tmp/overlay.tar.xz -C src
+      - name: Apply EXEC002 remediation patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat payload/exec002_patchpart_00.b64 payload/exec002_patchpart_01.b64 payload/exec002_patchpart_02.b64 payload/exec002_patchpart_03.b64 payload/exec002_patchpart_04.b64 | base64 -d | gzip -d > /tmp/remediation.patch
+          echo "$REMEDIATION_PATCH_SHA256  /tmp/remediation.patch" | sha256sum -c -
+          cd src
+          git apply --check /tmp/remediation.patch
+          git apply /tmp/remediation.patch
+          sha256sum /tmp/remediation.patch | tee ../evidence/remediation-patch.sha256
+      - name: Offline retained verification
+        working-directory: src
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash tools/run-pure-tests.sh | tee ../evidence/pure-tests.log
+          bash tools/verify-stream-hardening-contracts.sh | tee ../evidence/stream-hardening.log
+          bash tools/verify-build35-media-capabilities.sh | tee ../evidence/media-capabilities.log
+          bash tools/verify-build35-uiux-p0.sh | tee ../evidence/uiux-p0.log
+          bash tools/verify-build35-uiux-p1.sh | tee ../evidence/uiux-p1.log
+          bash tools/verify-runtime-remediation-contracts.sh | tee ../evidence/runtime-contracts.log
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Install Android API 36
+        shell: bash
+        run: |
+          set -euo pipefail
+          export ANDROID_HOME="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          export ANDROID_SDK_ROOT="$ANDROID_HOME"
+          SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          yes | "$SDKMANAGER" --licenses >/dev/null 2>&1 || true
+          "$SDKMANAGER" 'platform-tools' 'platforms;android-36' 'build-tools;36.0.0'
+          echo "ANDROID_HOME=$ANDROID_HOME" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=$ANDROID_HOME" >> "$GITHUB_ENV"
+          echo "sdk.dir=$ANDROID_HOME" > src/local.properties
+      - name: Gradle runtime
+        working-directory: src
+        run: chmod +x gradlew && ./gradlew --no-daemon --version | tee ../evidence/gradle-version.txt
+      - name: Unit tests
+        working-directory: src
+        run: ./gradlew --no-daemon testDebugUnitTest | tee ../evidence/testDebugUnitTest.log
+      - name: Compile Kotlin
+        working-directory: src
+        run: ./gradlew --no-daemon :app:compileDebugKotlin | tee ../evidence/compileDebugKotlin.log
+      - name: Lint
+        working-directory: src
+        run: ./gradlew --no-daemon lintDebug | tee ../evidence/lintDebug.log
+      - name: Compile instrumentation APK
+        working-directory: src
+        run: ./gradlew --no-daemon :app:assembleDebugAndroidTest | tee ../evidence/assembleDebugAndroidTest.log
+      - name: Clean assemble
+        working-directory: src
+        run: ./gradlew --no-daemon clean assembleDebug | tee ../evidence/clean-assembleDebug.log
+      - name: Verify APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK=src/app/build/outputs/apk/debug/app-debug.apk
+          BT="$ANDROID_HOME/build-tools/36.0.0"
+          test -f "$APK"
+          "$BT/aapt" dump badging "$APK" | tee evidence/aapt-badging.txt
+          grep -F "package: name='com.nexarenew.drstonecommand' versionCode='35' versionName='0.3.1'" evidence/aapt-badging.txt
+          grep -F "sdkVersion:'26'" evidence/aapt-badging.txt
+          grep -F "targetSdkVersion:'36'" evidence/aapt-badging.txt
+          grep -F "application-label:'INTERCEPT'" evidence/aapt-badging.txt
+          "$BT/zipalign" -c -v 4 "$APK" | tee evidence/zipalign.txt
+          "$BT/apksigner" verify --verbose --print-certs "$APK" | tee evidence/apksigner.txt
+          sha256sum "$APK" | tee evidence/INTERCEPT_V0_3_1_BUILD35_EXEC002_FINAL_DEBUG.apk.sha256
+          cp "$APK" evidence/INTERCEPT_V0_3_1_BUILD35_EXEC002_FINAL_DEBUG.apk
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: INTERCEPT_BUILD35_EXEC002_FINAL_V2_EVIDENCE
+          path: evidence/
+          if-no-files-found: warn
+          retention-days: 30
+      - name: Upload APK
+        if: success()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: INTERCEPT_BUILD35_EXEC002_FINAL_V2_APK
+          path: src/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 30
