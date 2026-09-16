@@ -1,0 +1,50 @@
+name: EXEC002 Recover Original Known13 Overlay
+
+on:
+  push:
+    branches:
+      - exec002-known13-recovery-16092026
+
+permissions:
+  contents: read
+
+jobs:
+  recover-known13:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout recovery branch with history
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+
+      - name: Recover original Git object and verify overlay
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p out/extracted
+          git show 1824de7c3f6fa42cb5f86fd9b50d45832e17b8a4:payload/gradle8143_patch_known13.tar.xz.b64 > out/gradle8143_patch_known13.tar.xz.b64
+          wc -c out/gradle8143_patch_known13.tar.xz.b64 | tee out/transport-size.txt
+          base64 -d out/gradle8143_patch_known13.tar.xz.b64 > out/gradle8143_patch_known13.tar.xz
+          echo '03ad7c2a62b85e528ec75b9fe72ab6ba49c226f835bc2ed317263d7e9ac437c7  out/gradle8143_patch_known13.tar.xz' | sha256sum -c -
+          xz -t out/gradle8143_patch_known13.tar.xz
+          tar -tvJf out/gradle8143_patch_known13.tar.xz | tee out/known13-contents.txt
+          tar -xJf out/gradle8143_patch_known13.tar.xz -C out/extracted
+          cat > out/target-six.sha256 <<'EOF'
+          6b667c33d75e93973fcbec87b78d2532cbab75d3fdd5de12e690f31c9094b773  app/src/main/java/com/nexarenew/aiconsole/MainActivity.kt
+          1b0adb079858f0e10839ea0f34405a2a4bfd0f43ee0a029262cb0fd1b238003d  app/src/main/java/com/nexarenew/aiconsole/ui/AppViewModel.kt
+          fc3d22a61874a32e84d73e927908e239f9352e5204f3cae0c34c5cba7b0e32fa  app/src/main/java/com/nexarenew/aiconsole/ui/screens/ChatScreen.kt
+          511842aee8bccde755f888e9234850403fdb158b632f50896b94d6f9bed63d5a  app/src/main/java/com/nexarenew/aiconsole/ui/screens/DocumentsScreen.kt
+          03b2d9d33b602a60d28ce9ab2f2970c48d9feca69f79f898caf2575616b6d417  app/src/main/java/com/nexarenew/aiconsole/ui/screens/SettingsScreen.kt
+          b96653d49d7da1b0ea9787bf6bd89713f280df8bbc62ed8cc3776b0fe5eae881  app/src/main/java/com/nexarenew/aiconsole/ui/screens/WorkspaceScreen.kt
+          EOF
+          (cd out/extracted && sha256sum -c ../target-six.sha256) | tee out/target-six-verification.txt
+          sha256sum out/gradle8143_patch_known13.tar.xz out/gradle8143_patch_known13.tar.xz.b64 | tee out/recovered-hashes.txt
+
+      - name: Upload recovered authoritative overlay
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: EXEC002_KNOWN13_ORIGINAL_RECOVERED
+          path: out/
+          if-no-files-found: error
+          retention-days: 30
