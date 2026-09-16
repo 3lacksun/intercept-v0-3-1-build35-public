@@ -1,0 +1,41 @@
+name: EXEC002 Transfer Private APEX Carrier
+
+on:
+  push:
+    branches: [exec002-baseline-recovery-16092026]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  transfer:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download and verify private APEX carrier blobs
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p out/source parts
+          curl --fail --location --retry 3 'https://raw.githubusercontent.com/3lacksun/intercept-v0-3-1-build32/intercept-build35-apex/apex_ci/part00.b64?token=CMNAELWLZX3XAYUG5KJWG33KVIAAJAA' -o parts/part00.b64
+          curl --fail --location --retry 3 'https://raw.githubusercontent.com/3lacksun/intercept-v0-3-1-build32/intercept-build35-apex/apex_ci/part01.b64?token=CMNAELWF5YPXRTGZOQW2EWDKVIAAJAA' -o parts/part01.b64
+          curl --fail --location --retry 3 'https://raw.githubusercontent.com/3lacksun/intercept-v0-3-1-build32/intercept-build35-apex/apex_ci/part02.b64?token=CMNAELSRUNBYALE4NNJGAKLKVIAAJAA' -o parts/part02.b64
+          curl --fail --location --retry 3 'https://raw.githubusercontent.com/3lacksun/intercept-v0-3-1-build32/intercept-build35-apex/apex_ci/part03.b64?token=CMNAELTFXQGV3HD3CBSMTU3KVIAAJAA' -o parts/part03.b64
+          test "$(git hash-object parts/part00.b64)" = '326e0fda99edf856d9a8a33aab987aadecda07f7'
+          test "$(git hash-object parts/part01.b64)" = '76600213ea7525b3434a3420cb6783971cec292d'
+          test "$(git hash-object parts/part02.b64)" = 'c5523462f83d8032fd792d720ff896f769d55815'
+          test "$(git hash-object parts/part03.b64)" = 'a14360ae307c3e170418dbd119a0f2bd2c8e101c'
+          cat parts/part*.b64 | tr -d '\r\n' | base64 -d > out/apex-source.zip
+          sha256sum out/apex-source.zip | tee out/APEX_SOURCE_ZIP_SHA256.txt
+          unzip -t out/apex-source.zip | tee out/APEX_SOURCE_ZIP_TEST.txt
+          unzip -q out/apex-source.zip -d out/source
+          find out/source -type f -print0 | sort -z | xargs -0 sha256sum > out/APEX_SOURCE_FILE_SHA256SUMS.txt
+          cp parts/*.b64 out/
+      - name: Upload reconstructed APEX source
+        uses: actions/upload-artifact@v4
+        with:
+          name: EXEC002_PRIVATE_APEX_BUILD35_SOURCE
+          path: out/
+          if-no-files-found: error
+          retention-days: 30
