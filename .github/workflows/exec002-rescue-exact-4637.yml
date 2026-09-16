@@ -1,0 +1,32 @@
+name: EXEC002 Rescue Exact Build35 4637 Source
+
+on:
+  push:
+    branches: [exec002-baseline-recovery-16092026]
+
+permissions:
+  contents: read
+
+jobs:
+  rescue:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Rescue and verify exact authoritative source
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p rescue
+          URL='https://sdmntpritalynorth.oaiusercontent.com/files/00000000-666c-8246-ba74-5735ad8a8b24/raw?se=2026-09-15T12%3A57%3A17Z&sp=r&sv=2026-02-06&sr=b&scid=2cf987b3-b64a-5a41-8ef6-1bdab8ec47be&skoid=3804227d-1b52-417d-afd9-9ffbb50fa53e&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-09-15T05%3A35%3A23Z&ske=2026-09-16T05%3A35%3A23Z&sks=b&skv=2026-02-06&sig=kw4ZzRoMWZwV9cO0H1dg8G%2B5CiA1rYQaB0dgwluJBV0%3D'
+          OUT='rescue/INTERCEPT_V0_3_1_BUILD35_EXEC002_PHASE0_PHASE1_SOURCE_VERIFIED_ANDROID_GATE_OPEN_15092026123600.zip'
+          curl --fail --location --retry 3 --retry-delay 2 -o "$OUT" "$URL"
+          echo '4637da3c223a802b80a4d7866d1b822ca4ad769b4e7dfc7dae2daa22c1df1349  '"$OUT" | sha256sum -c -
+          unzip -t "$OUT" | tee rescue/ZIP_TEST.txt
+          sha256sum "$OUT" | tee rescue/SHA256.txt
+      - name: Upload exact rescued source
+        uses: actions/upload-artifact@v4
+        with:
+          name: EXEC002_EXACT_BUILD35_SOURCE_4637
+          path: rescue/
+          if-no-files-found: error
+          retention-days: 30
