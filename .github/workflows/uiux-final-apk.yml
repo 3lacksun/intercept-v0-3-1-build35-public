@@ -1,9 +1,9 @@
-name: INTERCEPT Build35 UIUX Final APK
+name: INTERCEPT Build35 Debug Remediation APK
 
 on:
   push:
     branches:
-      - uiux-apk-final-18092026
+      - debug-remediation-18092026
     paths:
       - '.github/workflows/uiux-final-apk.yml'
       - 'payload/uiux_final_source_url.tmp'
@@ -13,7 +13,7 @@ permissions:
   contents: read
 
 env:
-  SOURCE_SHA256: 7cc35083a86ba68632f9e49de025fd6b5624976c396a46b041df52fe9c51e820
+  SOURCE_SHA256: ccbde461a336861197bcce56d40f958ac7fa4f89d799ca7dab62d6a5a5723760
   GRADLE_OPTS: >-
     -Dorg.gradle.daemon=false
     -Dorg.gradle.parallel=false
@@ -32,7 +32,7 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
 
-      - name: Reconstruct exact UIUX-remediated source
+      - name: Reconstruct exact debug-remediated source
         shell: bash
         run: |
           set -euo pipefail
@@ -54,7 +54,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p ../evidence/static
-          for s in             tools/run-pure-tests.sh             tools/verify-intercept-remediation-contracts.sh             tools/verify-runtime-remediation-contracts.sh             tools/verify-build35-uiux-p0.sh             tools/verify-build35-uiux-p1.sh             tools/verify-build35-uiux-final.sh             tools/verify-ux-feature-patch.sh             tools/verify-file-management-upgrade.sh             tools/verify-branding-contracts.sh             tools/verify-build35-media-capabilities.sh             tools/verify-model-pricing-contracts.sh             tools/verify-stream-hardening-contracts.sh
+          for s in             tools/run-pure-tests.sh             tools/verify-build25-feature-contracts.sh             tools/verify-build35-debug-fixes.sh             tools/verify-intercept-remediation-contracts.sh             tools/verify-runtime-remediation-contracts.sh             tools/verify-build35-uiux-p0.sh             tools/verify-build35-uiux-p1.sh             tools/verify-build35-uiux-final.sh             tools/verify-ux-feature-patch.sh             tools/verify-file-management-upgrade.sh             tools/verify-branding-contracts.sh             tools/verify-build35-media-capabilities.sh             tools/verify-model-pricing-contracts.sh             tools/verify-stream-hardening-contracts.sh
           do
             echo "===== $s =====" | tee -a ../evidence/static/retained-regression.log
             bash "$s" 2>&1 | tee -a ../evidence/static/retained-regression.log
@@ -127,8 +127,8 @@ jobs:
           "$BT/zipalign" -c -v 4 "$APK" | tee evidence/zipalign.txt
           "$BT/apksigner" verify --verbose --print-certs "$APK" | tee evidence/apksigner.txt
           sha256sum "$APK" | tee evidence/app-debug.apk.sha256
-          cp "$APK" evidence/INTERCEPT_V0_3_1_BUILD35_UIUX_REMEDIATED_FINAL_DEBUG.apk
-          cp /tmp/src.zip evidence/INTERCEPT_V0_3_1_BUILD35_UIUX_REMEDIATED_FINAL_SOURCE.zip
+          cp "$APK" evidence/INTERCEPT_V0_3_1_BUILD35_DEBUG_REMEDIATED_FINAL_DEBUG.apk
+          cp /tmp/src.zip evidence/INTERCEPT_V0_3_1_BUILD35_DEBUG_REMEDIATED_FINAL_SOURCE.zip
 
       - name: Collect reports
         if: always()
@@ -143,7 +143,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: INTERCEPT_BUILD35_UIUX_FINAL_EVIDENCE
+          name: INTERCEPT_BUILD35_DEBUG_REMEDIATED_EVIDENCE
           path: evidence/
           if-no-files-found: warn
           retention-days: 30
@@ -152,7 +152,7 @@ jobs:
         if: success()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: INTERCEPT_BUILD35_UIUX_FINAL_APK
+          name: INTERCEPT_BUILD35_DEBUG_REMEDIATED_APK
           path: src/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 30
