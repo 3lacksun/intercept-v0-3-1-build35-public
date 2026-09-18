@@ -1,0 +1,158 @@
+name: INTERCEPT Build35 UIUX Final APK
+
+on:
+  push:
+    branches:
+      - uiux-apk-final-18092026
+    paths:
+      - '.github/workflows/uiux-final-apk.yml'
+      - 'payload/uiux_final_source_url.tmp'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  SOURCE_SHA256: 7cc35083a86ba68632f9e49de025fd6b5624976c396a46b041df52fe9c51e820
+  GRADLE_OPTS: >-
+    -Dorg.gradle.daemon=false
+    -Dorg.gradle.parallel=false
+    -Dorg.gradle.workers.max=2
+    -Dkotlin.compiler.execution.strategy=in-process
+    -Dkotlin.incremental=false
+    -Dfile.encoding=UTF-8
+    -Xmx4g
+    -XX:MaxMetaspaceSize=1536m
+    -XX:+UseSerialGC
+
+jobs:
+  verify-build35-uiux:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+
+      - name: Reconstruct exact UIUX-remediated source
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p src evidence
+          SOURCE_URL="$(cat payload/uiux_final_source_url.tmp)"
+          curl --fail --location --retry 3 --retry-delay 2 -o /tmp/src.zip "$SOURCE_URL"
+          echo "$SOURCE_SHA256  /tmp/src.zip" | sha256sum -c -
+          sha256sum /tmp/src.zip | tee evidence/source.sha256
+          unzip -t /tmp/src.zip | tee evidence/source-zip-test.txt
+          unzip -q /tmp/src.zip -d src
+          test -f src/gradlew
+          test -d src/app
+          grep -F "gradle-8.11.1-bin.zip" src/gradle/wrapper/gradle-wrapper.properties
+          grep -F "distributionSha256Sum=f397b287023acdba1e9f6fc5ea72d22dd63669d59ed4a289a29b1a76eee151c6" src/gradle/wrapper/gradle-wrapper.properties
+
+      - name: Retained source and UIUX regression
+        working-directory: src
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p ../evidence/static
+          for s in             tools/run-pure-tests.sh             tools/verify-intercept-remediation-contracts.sh             tools/verify-runtime-remediation-contracts.sh             tools/verify-build35-uiux-p0.sh             tools/verify-build35-uiux-p1.sh             tools/verify-build35-uiux-final.sh             tools/verify-ux-feature-patch.sh             tools/verify-file-management-upgrade.sh             tools/verify-branding-contracts.sh             tools/verify-build35-media-capabilities.sh             tools/verify-model-pricing-contracts.sh             tools/verify-stream-hardening-contracts.sh
+          do
+            echo "===== $s =====" | tee -a ../evidence/static/retained-regression.log
+            bash "$s" 2>&1 | tee -a ../evidence/static/retained-regression.log
+          done
+
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+          cache-dependency-path: |
+            src/**/*.gradle*
+            src/**/gradle-wrapper.properties
+
+      - name: Install Android API 36 and Build Tools 36
+        shell: bash
+        run: |
+          set -euo pipefail
+          export ANDROID_HOME="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          export ANDROID_SDK_ROOT="$ANDROID_HOME"
+          SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          yes | "$SDKMANAGER" --licenses >/dev/null 2>&1 || true
+          "$SDKMANAGER" 'platform-tools' 'platforms;android-36' 'build-tools;36.0.0'
+          echo "ANDROID_HOME=$ANDROID_HOME" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=$ANDROID_HOME" >> "$GITHUB_ENV"
+          echo "sdk.dir=$ANDROID_HOME" > src/local.properties
+
+      - name: Gradle runtime
+        working-directory: src
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x gradlew
+          ./gradlew --no-daemon --version | tee ../evidence/gradle-version.txt
+          java -version 2>&1 | tee ../evidence/java-version.txt
+
+      - name: Unit tests
+        working-directory: src
+        run: ./gradlew --no-daemon testDebugUnitTest | tee ../evidence/testDebugUnitTest.log
+
+      - name: Compile debug Kotlin
+        working-directory: src
+        run: ./gradlew --no-daemon :app:compileDebugKotlin | tee ../evidence/compileDebugKotlin.log
+
+      - name: Android lint
+        working-directory: src
+        run: ./gradlew --no-daemon -Dorg.gradle.jvmargs="-Xmx4g -XX:MaxMetaspaceSize=1536m -Dfile.encoding=UTF-8" lintDebug | tee ../evidence/lintDebug.log
+
+      - name: Compile Android-test APK
+        working-directory: src
+        run: ./gradlew --no-daemon :app:assembleDebugAndroidTest | tee ../evidence/assembleDebugAndroidTest.log
+
+      - name: Clean assemble debug APK
+        working-directory: src
+        run: ./gradlew --no-daemon clean assembleDebug | tee ../evidence/clean-assembleDebug.log
+
+      - name: Verify APK identity integrity alignment and signature
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK=src/app/build/outputs/apk/debug/app-debug.apk
+          BT="$ANDROID_HOME/build-tools/36.0.0"
+          test -f "$APK"
+          unzip -t "$APK" | tee evidence/apk-zip-test.txt
+          "$BT/aapt" dump badging "$APK" | tee evidence/aapt-badging.txt
+          grep -F "package: name='com.nexarenew.drstonecommand' versionCode='35' versionName='0.3.1'" evidence/aapt-badging.txt
+          grep -F "sdkVersion:'26'" evidence/aapt-badging.txt
+          grep -F "targetSdkVersion:'36'" evidence/aapt-badging.txt
+          grep -F "application-label:'INTERCEPT'" evidence/aapt-badging.txt
+          "$BT/zipalign" -c -v 4 "$APK" | tee evidence/zipalign.txt
+          "$BT/apksigner" verify --verbose --print-certs "$APK" | tee evidence/apksigner.txt
+          sha256sum "$APK" | tee evidence/app-debug.apk.sha256
+          cp "$APK" evidence/INTERCEPT_V0_3_1_BUILD35_UIUX_REMEDIATED_FINAL_DEBUG.apk
+          cp /tmp/src.zip evidence/INTERCEPT_V0_3_1_BUILD35_UIUX_REMEDIATED_FINAL_SOURCE.zip
+
+      - name: Collect reports
+        if: always()
+        shell: bash
+        run: |
+          set +e
+          mkdir -p evidence/reports
+          cp -R src/app/build/reports/tests evidence/reports/unit-tests 2>/dev/null || true
+          cp src/app/build/reports/lint-results-debug.html evidence/reports/ 2>/dev/null || true
+
+      - name: Upload verification evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: INTERCEPT_BUILD35_UIUX_FINAL_EVIDENCE
+          path: evidence/
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Upload verified APK
+        if: success()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: INTERCEPT_BUILD35_UIUX_FINAL_APK
+          path: src/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 30
